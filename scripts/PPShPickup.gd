@@ -17,7 +17,7 @@ func interact(player):
     player.give_ppsh()
     if collision_shape != null:
         collision_shape.set_deferred("disabled", true)
-    var visual := get_node_or_null("MeshInstance3D") as MeshInstance3D
+    var visual := get_node_or_null("PPSHVisual") as Node3D
     if visual != null:
         visual.visible = false
     action_text = "ППШ уже взят"

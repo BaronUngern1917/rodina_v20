@@ -98,14 +98,18 @@ func create_door(parent: Node, name: String, pos: Vector3, width: float, color: 
     door.locked = locked
     parent.add_child(door)
 
-    var dm := MeshInstance3D.new()
-    dm.name = "DoorPanel"
-    var dmesh := BoxMesh.new()
-    dmesh.size = Vector3(width, 3.0, 0.12)
-    dm.mesh = dmesh
-    dm.position = Vector3(-width * 0.5, 0, 0)
-    dm.material_override = mat(color)
-    door.add_child(dm)
+    var door_visual := load("res://assets/props/_door._old._wood.glb").instantiate() as Node3D
+    door_visual.name = "DoorVisual"
+    # The imported leaf is authored in centimeters and its hinge sits at x=-338.
+    # Normalize its bounds to this opening while keeping the script's right-jamb pivot.
+    var source_bounds := AABB(Vector3(-401.4499, -57.0523, -6.419769), Vector3(63.77362, 150.5001, 12.84376))
+    door_visual.scale = Vector3(width / source_bounds.size.x, 3.0 / source_bounds.size.y, 0.18 / source_bounds.size.z)
+    door_visual.position = Vector3(
+        -source_bounds.end.x * door_visual.scale.x,
+        -source_bounds.get_center().y * door_visual.scale.y,
+        -source_bounds.get_center().z * door_visual.scale.z
+    )
+    door.add_child(door_visual)
 
     var cs := CollisionShape3D.new()
     cs.name = "CollisionShape3D"
@@ -131,14 +135,31 @@ func build_barracks():
     b.name = "Barracks"
     add_child(b)
 
-    # Larger barracks: 16 x 14 m.
-    mesh_box(b, Vector3(0, 0.05, 21), Vector3(16, 0.1, 14), Color("#6a4e38"), true)
-    mesh_box(b, Vector3(-4.5, 2.0, 14), Vector3(7.0, 4.0, 0.2), Color("#6a4e38"), true)
-    mesh_box(b, Vector3(4.5, 2.0, 14), Vector3(7.0, 4.0, 0.2), Color("#6a4e38"), true)
-    mesh_box(b, Vector3(0, 2.0, 28), Vector3(16, 4.0, 0.2), Color("#6a4e38"), true)
-    mesh_box(b, Vector3(-7.9, 2.0, 21), Vector3(0.2, 4.0, 14), Color("#6a4e38"), true)
-    mesh_box(b, Vector3(7.9, 2.0, 21), Vector3(0.2, 4.0, 14), Color("#6a4e38"), true)
-    mesh_box(b, Vector3(0, 4.3, 21), Vector3(16.5, 0.6, 14.5), Color("#3e3a30"), true)
+    # Keep the original floor/wall collision layout, but replace its blockout visuals.
+    var shell_visuals: Array[MeshInstance3D] = []
+    shell_visuals.append(mesh_box(b, Vector3(0, 0.05, 21), Vector3(16, 0.1, 14), Color("#6a4e38"), true))
+    shell_visuals.append(mesh_box(b, Vector3(-4.5, 2.0, 14), Vector3(7.0, 4.0, 0.2), Color("#6a4e38"), true))
+    shell_visuals.append(mesh_box(b, Vector3(4.5, 2.0, 14), Vector3(7.0, 4.0, 0.2), Color("#6a4e38"), true))
+    shell_visuals.append(mesh_box(b, Vector3(0, 2.0, 28), Vector3(16, 4.0, 0.2), Color("#6a4e38"), true))
+    shell_visuals.append(mesh_box(b, Vector3(-7.9, 2.0, 21), Vector3(0.2, 4.0, 14), Color("#6a4e38"), true))
+    shell_visuals.append(mesh_box(b, Vector3(7.9, 2.0, 21), Vector3(0.2, 4.0, 14), Color("#6a4e38"), true))
+    shell_visuals.append(mesh_box(b, Vector3(0, 4.3, 21), Vector3(16.5, 0.6, 14.5), Color("#3e3a30"), true))
+    for shell_visual in shell_visuals:
+        shell_visual.visible = false
+
+    var barracks_visual := load("res://assets/props/small_barracks.glb").instantiate() as Node3D
+    barracks_visual.name = "SmallBarracksVisual"
+    # Model bounds are about 7.05 x 5.80 x 10.01 m. Non-uniform scale matches
+    # the existing 16 x 14 m footprint and 4 m walls without moving gameplay points.
+    barracks_visual.scale = Vector3(2.25, 0.69, 1.4)
+    barracks_visual.position = Vector3(0, 0.13, 20.3)
+    var built_in_door := barracks_visual.find_child("door_low_003", true, false)
+    if built_in_door:
+        built_in_door.visible = false
+    var ground_disc := barracks_visual.find_child("Circle", true, false)
+    if ground_disc:
+        ground_disc.visible = false
+    b.add_child(barracks_visual)
 
     # Beds.
     for x in [-5.2, 0.0, 5.2]:
@@ -240,6 +261,15 @@ func build_yard():
     mesh_cylinder(y, Vector3(-9, 2.5, 5), 0.05, 5.0, Color("#5b5a4c"))
     mesh_box(y, Vector3(-8.2, 4.1, 5), Vector3(1.7, 0.9, 0.06), Color("#9b2e2a"), false)
 
+    # A single prop cluster beside the far storage shed, outside the clear route
+    # from the barracks to the range. Its source GLB contains tires, barrels,
+    # timber and crates in one deliberately compact salvage pile.
+    var yard_props := load("res://assets/props/assets_pack_free_survivalpostapo.glb").instantiate() as Node3D
+    yard_props.name = "StorageYardProps"
+    yard_props.scale = Vector3.ONE * 0.72
+    yard_props.position = Vector3(12, 0.82, -43) - Vector3(8.97, 0, -11.36) * yard_props.scale
+    y.add_child(yard_props)
+
 func build_armory():
     var a := Node3D.new()
     a.name = "Armory"
@@ -319,15 +349,13 @@ func build_armory():
     gun.position = Vector3(0.9, 1.55, -14.4)
     gun.set_script(load("res://scripts/PPShPickup.gd"))
     add_child(gun)
-    var gmesh := BoxMesh.new()
-    gmesh.size = Vector3(0.12, 0.14, 1.3)
-    var gi := MeshInstance3D.new()
-    gi.mesh = gmesh
-    gi.material_override = mat(Color("#282722"))
-    gun.add_child(gi)
+    var gun_visual := load("res://scenes/PPSH.tscn").instantiate() as Node3D
+    gun_visual.name = "PPSHVisual"
+    gun.add_child(gun_visual)
     var gc := CollisionShape3D.new()
+    gc.name = "CollisionShape3D"
     var gs := BoxShape3D.new()
-    gs.size = Vector3(0.3, 0.4, 1.5)
+    gs.size = Vector3(0.3, 0.4, 1.0)
     gc.shape = gs
     gun.add_child(gc)
     gc.disabled = true
@@ -391,6 +419,36 @@ func build_forest():
         mesh_cylinder(f, Vector3(x, 1.4, z), 0.18 + float(i % 3) * 0.07, 2.8 + float(i % 2) * 1.2, Color("#3f3a2b"))
         var crown: MeshInstance3D = mesh_cylinder(f, Vector3(x, 3.1, z), 0.9 + float(i % 3) * 0.2, 2.0, Color("#354934"))
         crown.scale = Vector3(1, 1, 1)
+
+    # Use individual mossy/plain pack variants as low forest-edge decoration.
+    # They stay off the central route and have no collision because they are not obstacles.
+    var rock_pack := load("res://assets/props/stylised_rocks_asset_pack.glb").instantiate() as Node3D
+    f.add_child(rock_pack)
+    var rock_root := rock_pack.find_child("RootNode", true, false)
+    if rock_root:
+        for source_mesh in rock_pack.find_children("*", "MeshInstance3D", true, false):
+            var rock_mesh := source_mesh as MeshInstance3D
+            rock_mesh.visible = false
+        var rock_sets := [
+            ["Plain_Rock1", ["Plain_Rock3", "Plain_Rock12", "Plain_Rock23"], Vector3(32.5, 0, -28.0), 0.9],
+            ["Mossy_Rock1", ["Mossy_Rock8", "Mossy_Rock17", "Mossy_Rock29"], Vector3(-32.5, 0, -62.0), 0.9]
+        ]
+        for rock_set in rock_sets:
+            var group := rock_root.get_node_or_null(rock_set[0]) as Node3D
+            if group == null:
+                continue
+            group.position = group.get_parent().global_transform.affine_inverse() * rock_set[2]
+            group.scale = Vector3.ONE * float(rock_set[3])
+            for index in range(rock_set[1].size()):
+                var variant := group.get_node_or_null(rock_set[1][index]) as Node3D
+                if variant == null:
+                    continue
+                # GLB variants are spaced on a 100 cm catalog grid; regroup three
+                # different stones as a small cluster and reveal only their meshes.
+                variant.position = Vector3((index % 2) * 120.0, 0, (index / 2) * 120.0)
+                var selected_meshes := variant.find_children("*", "MeshInstance3D", true, false)
+                if not selected_meshes.is_empty():
+                    (selected_meshes[0] as MeshInstance3D).visible = true
 
 func setup_audio():
     shout_player = AudioStreamPlayer.new()

@@ -23,24 +23,10 @@ func _ready():
     setup_weapon()
 
 func setup_weapon():
-    var body := BoxMesh.new()
-    body.size = Vector3(0.11,0.13,0.72)
-    $Head/Camera3D/Weapon/WeaponBody.mesh = body
-    var stock := BoxMesh.new()
-    stock.size = Vector3(0.14,0.12,0.32)
-    $Head/Camera3D/Weapon/WeaponStock.mesh = stock
-    $Head/Camera3D/Weapon/WeaponStock.position = Vector3(0,-0.01,0.46)
-    var barrel := CylinderMesh.new()
-    barrel.top_radius = 0.025
-    barrel.bottom_radius = 0.025
-    barrel.height = 0.62
-    $Head/Camera3D/Weapon/WeaponBarrel.mesh = barrel
-    $Head/Camera3D/Weapon/WeaponBarrel.rotation_degrees.x = 90
-    $Head/Camera3D/Weapon/WeaponBarrel.position = Vector3(0,0,-0.55)
-    var mag := BoxMesh.new()
-    mag.size = Vector3(0.09,0.22,0.14)
-    $Head/Camera3D/Weapon/WeaponMagazine.mesh = mag
-    $Head/Camera3D/Weapon/WeaponMagazine.position = Vector3(0,-0.15,-0.05)
+    for placeholder in ["WeaponBody", "WeaponStock", "WeaponBarrel", "WeaponMagazine"]:
+        get_node("Head/Camera3D/Weapon/" + placeholder).visible = false
+    var ppsh_visual := load("res://scenes/PPSH.tscn").instantiate() as Node3D
+    weapon.add_child(ppsh_visual)
     weapon.visible = false
     fork.visible = false
 
