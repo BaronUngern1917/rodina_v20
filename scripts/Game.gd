@@ -272,7 +272,7 @@ func build_armory():
     arsenal_panel.mesh = arsenal_mesh
     arsenal_panel.position = Vector3(0, 1.85, -10.5)
     var arsenal_mat := StandardMaterial3D.new()
-    arsenal_mat.albedo_texture = load("res://assets/armory_wall.webp") as Texture2D
+    arsenal_mat.albedo_texture = load("res://assets/armory_wall.jpg") as Texture2D
     arsenal_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
     arsenal_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
     arsenal_mat.roughness = 1.0
@@ -367,15 +367,15 @@ func build_truck(pos: Vector3):
     t.position = pos
     t.set_script(load("res://scripts/Truck.gd"))
     add_child(t)
-    mesh_box(t, Vector3(0, 0.65, 0), Vector3(2.8, 1.1, 4.2), Color("#4f5945"), false)
-    mesh_box(t, Vector3(0, 1.45, 1.15), Vector3(2.5, 1.3, 1.55), Color("#586049"), false)
-    for x in [-1.35, 1.35]:
-        for z in [-1.3, 1.3]:
-            mesh_cylinder(t, Vector3(x, 0.35, z), 0.48, 0.35, Color("#292923"))
-            t.get_child(t.get_child_count() - 1).rotation_degrees.z = 90
+    var truck_model := load("res://assets/vehicles/zis-5b.glb") as PackedScene
+    var truck_visual := truck_model.instantiate() as Node3D
+    truck_visual.name = "ZIS5Visual"
+    truck_visual.scale = Vector3.ONE * 0.95
+    truck_visual.rotation_degrees.y = 90.0
+    t.add_child(truck_visual)
     var cs := CollisionShape3D.new()
     var sh := BoxShape3D.new()
-    sh.size = Vector3(3, 2.5, 4.5)
+    sh.size = Vector3(3, 2.5, 6.0)
     cs.shape = sh
     t.add_child(cs)
 
