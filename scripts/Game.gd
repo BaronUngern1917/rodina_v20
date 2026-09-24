@@ -398,6 +398,8 @@ func build_truck(pos: Vector3):
     var truck_model := load("res://assets/vehicles/zis-5b.glb") as PackedScene
     var truck_visual := truck_model.instantiate() as Node3D
     truck_visual.name = "ZIS5Visual"
+    # Godot's GLTF importer converts the centimeter-authored mesh to meters;
+    # 0.95 keeps its ~5.8 m length aligned with the existing collision volume.
     truck_visual.scale = Vector3.ONE * 0.95
     truck_visual.rotation_degrees.y = 90.0
     t.add_child(truck_visual)
