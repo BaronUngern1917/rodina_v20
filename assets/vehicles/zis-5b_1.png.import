@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://b210f0p0h7jel"
-path="res://.godot/imported/zis-5b_1.png-c32e8f116fbbb473df42b5065839243a.ctex"
+path.s3tc="res://.godot/imported/zis-5b_1.png-c32e8f116fbbb473df42b5065839243a.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "d8690ef36f7c3b1362014f9b4483d672"
@@ -14,7 +15,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/vehicles/zis-5b_1.png"
-dest_files=["res://.godot/imported/zis-5b_1.png-c32e8f116fbbb473df42b5065839243a.ctex"]
+dest_files=["res://.godot/imported/zis-5b_1.png-c32e8f116fbbb473df42b5065839243a.s3tc.ctex"]
 
 [params]
 

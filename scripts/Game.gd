@@ -87,7 +87,17 @@ func mesh_cylinder(parent: Node, pos: Vector3, radius: float, height: float, col
     parent.add_child(n)
     return n
 
-func create_door(parent: Node, name: String, pos: Vector3, width: float, color: Color, locked := false, action := "Открыть дверь", target := "yard") -> StaticBody3D:
+func add_box_collider(parent: Node, pos: Vector3, size: Vector3):
+    var body := StaticBody3D.new()
+    body.position = pos
+    var shape := CollisionShape3D.new()
+    var box := BoxShape3D.new()
+    box.size = size
+    shape.shape = box
+    body.add_child(shape)
+    parent.add_child(body)
+
+func create_door(parent: Node, name: String, pos: Vector3, width: float, color: Color, locked := false, action := "Открыть дверь", target := "yard", height := 3.0) -> StaticBody3D:
     # Door origin is the hinge/jamb, not the center of the panel.
     var door := StaticBody3D.new()
     door.name = name
@@ -103,7 +113,7 @@ func create_door(parent: Node, name: String, pos: Vector3, width: float, color: 
     # The imported leaf is authored in centimeters and its hinge sits at x=-338.
     # Normalize its bounds to this opening while keeping the script's right-jamb pivot.
     var source_bounds := AABB(Vector3(-401.4499, -57.0523, -6.419769), Vector3(63.77362, 150.5001, 12.84376))
-    door_visual.scale = Vector3(width / source_bounds.size.x, 3.0 / source_bounds.size.y, 0.18 / source_bounds.size.z)
+    door_visual.scale = Vector3(width / source_bounds.size.x, height / source_bounds.size.y, 0.18 / source_bounds.size.z)
     door_visual.position = Vector3(
         -source_bounds.end.x * door_visual.scale.x,
         -source_bounds.get_center().y * door_visual.scale.y,
@@ -114,7 +124,7 @@ func create_door(parent: Node, name: String, pos: Vector3, width: float, color: 
     var cs := CollisionShape3D.new()
     cs.name = "CollisionShape3D"
     var bs := BoxShape3D.new()
-    bs.size = Vector3(width, 3.0, 0.18)
+    bs.size = Vector3(width, height, 0.18)
     cs.shape = bs
     cs.position = Vector3(-width * 0.5, 0, 0)
     door.add_child(cs)
@@ -135,24 +145,12 @@ func build_barracks():
     b.name = "Barracks"
     add_child(b)
 
-    # Keep the original floor/wall collision layout, but replace its blockout visuals.
-    var shell_visuals: Array[MeshInstance3D] = []
-    shell_visuals.append(mesh_box(b, Vector3(0, 0.05, 21), Vector3(16, 0.1, 14), Color("#6a4e38"), true))
-    shell_visuals.append(mesh_box(b, Vector3(-4.5, 2.0, 14), Vector3(7.0, 4.0, 0.2), Color("#6a4e38"), true))
-    shell_visuals.append(mesh_box(b, Vector3(4.5, 2.0, 14), Vector3(7.0, 4.0, 0.2), Color("#6a4e38"), true))
-    shell_visuals.append(mesh_box(b, Vector3(0, 2.0, 28), Vector3(16, 4.0, 0.2), Color("#6a4e38"), true))
-    shell_visuals.append(mesh_box(b, Vector3(-7.9, 2.0, 21), Vector3(0.2, 4.0, 14), Color("#6a4e38"), true))
-    shell_visuals.append(mesh_box(b, Vector3(7.9, 2.0, 21), Vector3(0.2, 4.0, 14), Color("#6a4e38"), true))
-    shell_visuals.append(mesh_box(b, Vector3(0, 4.3, 21), Vector3(16.5, 0.6, 14.5), Color("#3e3a30"), true))
-    for shell_visual in shell_visuals:
-        shell_visual.visible = false
-
+    # Use the furnished full barracks at its authored proportions (about 6 x 9 m).
+    # The original stretched shell and its hidden-but-active colliders are removed.
     var barracks_visual := load("res://assets/props/small_barracks.glb").instantiate() as Node3D
-    barracks_visual.name = "SmallBarracksVisual"
-    # Model bounds are about 7.05 x 5.80 x 10.01 m. Non-uniform scale matches
-    # the existing 16 x 14 m footprint and 4 m walls without moving gameplay points.
-    barracks_visual.scale = Vector3(2.25, 0.69, 1.4)
-    barracks_visual.position = Vector3(0, 0.13, 20.3)
+    barracks_visual.name = "BarracksFullModel"
+    barracks_visual.scale = Vector3.ONE
+    barracks_visual.position = Vector3(0, 0.06, 20.3)
     var built_in_door := barracks_visual.find_child("door_low_003", true, false)
     if built_in_door:
         built_in_door.visible = false
@@ -161,62 +159,65 @@ func build_barracks():
         ground_disc.visible = false
     b.add_child(barracks_visual)
 
-    # Beds.
-    for x in [-5.2, 0.0, 5.2]:
-        for z in [17.0, 25.0]:
-            mesh_box(b, Vector3(x, 0.55, z), Vector3(3.0, 0.35, 1.15), Color("#5a5b50"), false)
-            mesh_box(b, Vector3(x, 0.9, z - 0.35), Vector3(3.0, 0.25, 0.15), Color("#403f38"), false)
+    # Wall colliders follow the model's ~5.7 x 9.4 m footprint. The south
+    # doorway (at z ~= 16) remains a real opening for the interactive leaf.
+    add_box_collider(b, Vector3(-1.68, 2.55, 16.03), Vector3(2.24, 5.1, 0.22))
+    add_box_collider(b, Vector3(2.23, 2.55, 16.03), Vector3(1.14, 5.1, 0.22))
+    add_box_collider(b, Vector3(-2.86, 2.55, 20.75), Vector3(0.22, 5.1, 9.2))
+    add_box_collider(b, Vector3(2.86, 2.55, 20.75), Vector3(0.22, 5.1, 9.2))
+    add_box_collider(b, Vector3(0, 2.55, 25.48), Vector3(5.72, 5.1, 0.22))
+
+    # Two compact bed rows leave a clear central aisle from the entrance.
+    for x in [-1.75, 1.75]:
+        for z in [18.5, 21.1]:
+            mesh_box(b, Vector3(x, 0.45, z), Vector3(1.35, 0.3, 0.78), Color("#5a5b50"), false)
+            mesh_box(b, Vector3(x, 0.72, z - 0.27), Vector3(1.35, 0.22, 0.12), Color("#403f38"), false)
 
     # Propaganda posters.
-    mesh_box(b, Vector3(-2.4, 2.5, 13.88), Vector3(2.0, 2.3, 0.05), Color("#8e332c"), false)
-    mesh_box(b, Vector3(0.0, 2.5, 13.88), Vector3(2.0, 2.3, 0.05), Color("#b18b38"), false)
-    mesh_box(b, Vector3(2.4, 2.5, 13.88), Vector3(2.0, 2.3, 0.05), Color("#6b6e63"), false)
+    mesh_box(b, Vector3(-1.8, 2.6, 25.24), Vector3(1.3, 1.8, 0.05), Color("#8e332c"), false)
+    mesh_box(b, Vector3(-0.25, 2.6, 25.24), Vector3(1.3, 1.8, 0.05), Color("#b18b38"), false)
 
     # Main exterior exit. It becomes usable only after the toilet sequence is finished.
-    var yard_exit := create_door(b, "BarracksExitDoor", Vector3(1.1, 1.5, 14.12), 2.2, Color("#49382b"), true, "Выйти во двор", "yard")
+    var yard_exit := create_door(b, "BarracksExitDoor", Vector3(1.65, 1.05, 16.03), 2.2, Color("#49382b"), true, "Выйти во двор", "yard", 2.1)
     yard_exit.action_text = "Выйти во двор"
-    # A visual threshold only; it must never block the exterior doorway.
-    mesh_box(b, Vector3(0, 0.12, 13.88), Vector3(2.0, 0.12, 0.22), Color("#5a4735"), false)
 
-    # One normal toilet door. It is used both to enter and to leave;
-    # after entering, it closes and stays locked until cleaning is finished.
-    var toilet_entry := create_door(b, "ToiletDoor", Vector3(6.7, 1.5, 19.0), 2.2, Color("#49382b"), true, "Открыть дверь в туалет", "toilet")
+    # Toilet blockout fits into the rear-right corner of the actual interior.
+    var toilet_entry := create_door(b, "ToiletDoor", Vector3(2.5, 1.0, 22.85), 1.0, Color("#49382b"), true, "Открыть дверь в туалет", "toilet", 2.0)
     toilet_entry.action_text = "Открыть дверь в туалет"
     toilet_entry.auto_close_after_entry = true
 
-    # Senior soldier.
+    # Interior toilet partition and colliders, with its front doorway left clear.
+    add_box_collider(b, Vector3(1.31, 1.2, 22.83), Vector3(0.38, 2.4, 0.12))
+    add_box_collider(b, Vector3(2.62, 1.2, 22.83), Vector3(0.24, 2.4, 0.12))
+    add_box_collider(b, Vector3(1.12, 1.2, 23.95), Vector3(0.12, 2.4, 2.3))
+    add_box_collider(b, Vector3(2.74, 1.2, 23.95), Vector3(0.12, 2.4, 2.3))
+    add_box_collider(b, Vector3(1.93, 1.2, 25.08), Vector3(1.74, 2.4, 0.12))
+
+    # Senior soldier retains the same script and interaction in an open sightline.
     var officer := StaticBody3D.new()
     officer.name = "SeniorSoldier"
-    officer.position = Vector3(3.0, 1.0, 15.5)
+    officer.position = Vector3(-1.25, 0.95, 23.1)
     officer.set_script(load("res://scripts/Officer.gd"))
     add_child(officer)
     mesh_box(officer, Vector3.ZERO, Vector3(0.7, 1.9, 0.45), Color("#4d5948"), false)
     mesh_cylinder(officer, Vector3(0, 1.25, 0), 0.3, 0.45, Color("#a9846b"))
     var oc := CollisionShape3D.new()
     var os := CapsuleShape3D.new()
-    os.radius = 0.38
+    os.radius = 0.32
     os.height = 1.9
     oc.shape = os
     officer.add_child(oc)
 
-    # Toilet is a small enclosed room with ONE doorway only.
-    var room := Node3D.new()
-    room.name = "ToiletRoom"
-    add_child(room)
-    # The front opening is exactly the width of ToiletDoor. The door is aligned
-    # to the right jamb, so there is no half-door gap at either side.
-    mesh_box(room, Vector3(4.0, 1.5, 19.0), Vector3(1.0, 3.0, 0.2), Color("#5b4939"), true)
-    mesh_box(room, Vector3(7.2, 1.5, 19.0), Vector3(1.0, 3.0, 0.2), Color("#5b4939"), true)
-    mesh_box(room, Vector3(7.6, 1.5, 21.0), Vector3(0.2, 3.0, 4.0), Color("#5b4939"), true)
-    mesh_box(room, Vector3(3.6, 1.5, 21.0), Vector3(0.2, 3.0, 4.0), Color("#5b4939"), true)
-    mesh_box(room, Vector3(5.6, 3.0, 21.0), Vector3(4.2, 0.2, 4.0), Color("#514238"), true)
-    mesh_box(room, Vector3(5.6, 0.1, 21.0), Vector3(4.2, 0.2, 4.0), Color("#5b4939"), true)
-    # Solid rear wall: there is deliberately no second exit.
-    mesh_box(room, Vector3(5.6, 1.5, 23.0), Vector3(4.2, 3.0, 0.2), Color("#5b4939"), true)
+    # Light visual partition surfaces; the collider boxes above preserve the door gap.
+    mesh_box(b, Vector3(1.31, 1.2, 22.83), Vector3(0.38, 2.4, 0.12), Color("#5b4939"), false)
+    mesh_box(b, Vector3(2.63, 1.2, 22.83), Vector3(0.24, 2.4, 0.12), Color("#5b4939"), false)
+    mesh_box(b, Vector3(1.12, 1.2, 23.95), Vector3(0.12, 2.4, 2.3), Color("#5b4939"), false)
+    mesh_box(b, Vector3(2.74, 1.2, 23.95), Vector3(0.12, 2.4, 2.3), Color("#5b4939"), false)
+    mesh_box(b, Vector3(1.93, 2.42, 23.95), Vector3(1.74, 0.12, 2.3), Color("#514238"), false)
 
     var toilet := StaticBody3D.new()
     toilet.name = "Toilet"
-    toilet.position = Vector3(5.6, 0.35, 21.0)
+    toilet.position = Vector3(1.93, 0.35, 24.0)
     toilet.set_script(load("res://scripts/Toilet.gd"))
     add_child(toilet)
     mesh_box(toilet, Vector3.ZERO, Vector3(1.0, 0.7, 1.2), Color("#c7c4b7"), false)
@@ -229,7 +230,7 @@ func build_barracks():
     # Kerose­ne lamp: warm local light with a crude metal base and glass body.
     var lamp := Node3D.new()
     lamp.name = "KeroseneLamp"
-    lamp.position = Vector3(-1.0, 2.7, 20.5)
+    lamp.position = Vector3(-0.6, 3.2, 20.5)
     b.add_child(lamp)
     mesh_cylinder(lamp, Vector3.ZERO, 0.28, 0.12, Color("#5a5040"))
     mesh_cylinder(lamp, Vector3(0, 0.22, 0), 0.16, 0.34, Color("#b7a66f"))
@@ -622,9 +623,9 @@ func start_game():
     player.process_mode = Node.PROCESS_MODE_INHERIT
     Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
     update_state("barracks")
-    player.position = Vector3(0, 1.05, 25)
+    player.position = Vector3(0, 1.05, 18.0)
     player.velocity = Vector3.ZERO
-    player.rotation = Vector3(0, 0, 0)
+    player.rotation = Vector3(0, PI, 0)
     player.head.rotation = Vector3.ZERO
     door_unlocked = false
     toilet_exit_unlocked = false
@@ -762,7 +763,7 @@ func _process(delta):
     # moved inside. This avoids trapping the player in the doorway.
     if state == "toilet":
         var toilet_door: StaticBody3D = get_node_or_null("Barracks/ToiletDoor") as StaticBody3D
-        if toilet_door and toilet_door.opened and toilet_door.auto_close_after_entry and player.position.z > 20.15:
+        if toilet_door and toilet_door.opened and toilet_door.auto_close_after_entry and player.position.z > 23.25:
             toilet_door.close_and_lock("Дверь заперта до окончания уборки")
 
     # Yard-to-range transition is deliberately far from the armory.
