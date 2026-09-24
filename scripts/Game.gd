@@ -686,8 +686,8 @@ func toilet_clean():
             var collision: CollisionShape3D = exit_door.get_node_or_null("CollisionShape3D") as CollisionShape3D
             if collision:
                 collision.set_deferred("disabled", false)
-        message.text = "Готово. Теперь можно вернуться в казарму через дверь."
-        objective.text = "ПРОЛОГ  |  Задание: вернуться в казарму через дверь"
+        update_state("barracks")
+        message.text = "Готово. Теперь можно выйти из казармы во двор."
 
 func receive_ppsh_from_buryat():
     if state != "yard":
