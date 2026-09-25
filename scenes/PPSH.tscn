@@ -2,10 +2,11 @@
 
 [ext_resource type="PackedScene" path="res://assets/weapons/ppsh-41.glb" id="1_ppsh"]
 
-; Center the centimeter-authored GLB, and point its +X barrel along the camera's -Z aim ray.
+; Center the centimeter-authored GLB.  Its muzzle is on local -X, so -90° Y
+; rotation points the barrel forward along the camera's -Z aim ray.
 [node name="PPSHVisual" type="Node3D"]
 position = Vector3(0, -0.2214, -0.0481)
-rotation_degrees = Vector3(0, 90, 0)
+rotation_degrees = Vector3(0, -90, 0)
 scale = Vector3(0.0015, 0.0015, 0.0015)
 
 [node name="PPSHModel" parent="." instance=ExtResource("1_ppsh")]

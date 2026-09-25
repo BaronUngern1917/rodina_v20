@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="WeaponDefinition" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/WeaponDefinition.gd" id="1_definition"]
+[ext_resource type="PackedScene" path="res://scenes/PPSH.tscn" id="2_scene"]
+[ext_resource type="AudioStream" path="res://assets/audio/ppsh.mp3" id="3_fire_sound"]
+
+[resource]
+script = ExtResource("1_definition")
+weapon_id = &"ppsh"
+display_name = "ППШ"
+equip_key_physical_code = 50
+visual_scene = ExtResource("2_scene")
+fire_sound = ExtResource("3_fire_sound")
+magazine_capacity = 35
+reserve_magazines = 2
+rounds_per_second = 10.0
+spread_degrees = 0.8
+reload_duration = 1.35
+hip_position = Vector3(0.35, -0.28, -0.62)
+ads_position = Vector3(0.02, -0.05, -0.62)
+hip_rotation_degrees = Vector3(0, 0, 0)
+ads_rotation_degrees = Vector3(0, 0, 0)
+muzzle_position = Vector3(0, -0.02, -0.55)
