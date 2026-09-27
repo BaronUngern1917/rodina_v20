@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://c4qs0noqmy61n"
-path="res://.godot/imported/metal_bunkbeds_1.png-87b036863c8acdd52a09b163b881d742.ctex"
+path.s3tc="res://.godot/imported/metal_bunkbeds_1.png-87b036863c8acdd52a09b163b881d742.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "d0faf3902abc51c97c3e274a8ca91c66"
@@ -14,11 +15,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/props/metal_bunkbeds_1.png"
-dest_files=["res://.godot/imported/metal_bunkbeds_1.png-87b036863c8acdd52a09b163b881d742.ctex"]
+dest_files=["res://.godot/imported/metal_bunkbeds_1.png-87b036863c8acdd52a09b163b881d742.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +41,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

@@ -36,8 +36,9 @@ var standing_camera_y := 0.15
 
 var muzzle_flash: MeshInstance3D
 var muzzle_light: OmniLight3D
-var fire_sound_player: AudioStreamPlayer3D
-var step_sound_player: AudioStreamPlayer3D
+const ONE_SHOT_AUDIO_POOL_SCRIPT: Script = preload("res://scripts/OneShotAudioPool.gd")
+var weapon_sound_pool: Node3D
+var footstep_sound_pool: Node3D
 
 @onready var head: Node3D = $Head
 @onready var camera: Camera3D = $Head/Camera3D
@@ -71,21 +72,19 @@ func setup_weapon():
     camera.fov = 75.0
 
 func setup_player_audio():
-    fire_sound_player = AudioStreamPlayer3D.new()
-    fire_sound_player.name = "WeaponFireSound"
-    fire_sound_player.volume_db = -3.0
-    fire_sound_player.max_distance = 32.0
-    fire_sound_player.unit_size = 5.0
-    camera.add_child(fire_sound_player)
+    weapon_sound_pool = ONE_SHOT_AUDIO_POOL_SCRIPT.new() as Node3D
+    weapon_sound_pool.name = "WeaponOneShotPool"
+    weapon_sound_pool.position.y = 1.0
+    add_child(weapon_sound_pool)
+    weapon_sound_pool.call("configure", null, 0.09, 0.09, -3.0, 32.0, 5.0, 8)
 
-    step_sound_player = AudioStreamPlayer3D.new()
-    step_sound_player.name = "FootstepSound"
-    step_sound_player.stream = load("res://assets/audio/fast-walking-on-a-concrete-surface.mp3") as AudioStream
-    step_sound_player.position = Vector3(0.0, -0.75, 0.0)
-    step_sound_player.volume_db = -12.0
-    step_sound_player.max_distance = 18.0
-    step_sound_player.unit_size = 3.0
-    add_child(step_sound_player)
+    footstep_sound_pool = ONE_SHOT_AUDIO_POOL_SCRIPT.new() as Node3D
+    footstep_sound_pool.name = "FootstepOneShotPool"
+    footstep_sound_pool.position.y = -0.75
+    add_child(footstep_sound_pool)
+    var footstep_stream := load("res://assets/audio/fast-walking-on-a-concrete-surface.mp3") as AudioStream
+    footstep_sound_pool.call("configure", footstep_stream, 0.24, 0.35, -12.0, 18.0, 3.0, 4)
+    footstep_sound_pool.call("set_sample_starts", PackedFloat32Array([0.0, 0.33, 0.68, 1.03, 1.38, 1.73, 2.1, 2.45, 2.8, 3.2, 3.6]))
 
 func _unhandled_input(event):
     if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
@@ -180,7 +179,7 @@ func can_stand_up() -> bool:
     return get_world_3d().direct_space_state.intersect_shape(query, 1).is_empty()
 
 func update_footsteps(delta: float, moving: bool, sprinting: bool):
-    if not moving or not is_on_floor() or step_sound_player == null or step_sound_player.stream == null:
+    if not moving or not is_on_floor() or footstep_sound_pool == null:
         step_timer = 0.0
         return
     walk_cycle += delta * (12.0 if sprinting else (7.2 if is_crouched else 9.0))
@@ -188,7 +187,7 @@ func update_footsteps(delta: float, moving: bool, sprinting: bool):
     step_timer += delta
     if step_timer >= interval:
         step_timer -= interval
-        step_sound_player.play()
+        footstep_sound_pool.call("play_random_one_shot")
 
 func update_weapon_pose(delta: float, moving: bool):
     if current_weapon_definition == null or not weapon_visible:
@@ -222,8 +221,10 @@ func equip_weapon(definition: WeaponDefinition):
     max_ammo = definition.magazine_capacity
     ammo = int(weapon_ammo.get(definition.weapon_id, definition.magazine_capacity))
     reserve_ammo = int(weapon_reserve_ammo.get(definition.weapon_id, 0))
-    if fire_sound_player:
-        fire_sound_player.stream = definition.fire_sound
+    if weapon_sound_pool:
+        weapon_sound_pool.call("set_stream", definition.fire_sound)
+        if definition.weapon_id == &"ppsh":
+            weapon_sound_pool.call("set_sample_starts", PackedFloat32Array([10.0, 10.09, 10.18, 10.27, 10.36, 10.45, 10.54, 10.63]))
     var visual_name := "WeaponVisual_%s" % str(definition.weapon_id)
     var visual := weapon.get_node_or_null(visual_name) as Node3D
     if visual == null and definition.visual_scene:
@@ -295,8 +296,8 @@ func shoot():
     muzzle_flash.visible = true
     muzzle_light.light_energy = 2.0
     recoil_offset += 0.014
-    if fire_sound_player and fire_sound_player.stream and not fire_sound_player.playing:
-        fire_sound_player.play()
+    if weapon_sound_pool:
+        weapon_sound_pool.call("play_random_one_shot")
 
     var spread := deg_to_rad(current_weapon_definition.spread_degrees)
     var direction := -camera.global_transform.basis.z
