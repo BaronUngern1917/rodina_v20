@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" path="res://scripts/WeaponDefinition.gd" id="1_definition"]
 [ext_resource type="PackedScene" path="res://scenes/PPSH.tscn" id="2_scene"]
-[ext_resource type="AudioStream" path="res://assets/audio/ppsh.mp3" id="3_fire_sound"]
+[ext_resource type="AudioStream" path="res://assets/audio/ppsh_single.wav" id="3_fire_sound"]
 
 [resource]
 script = ExtResource("1_definition")
@@ -16,8 +16,8 @@ reserve_magazines = 2
 rounds_per_second = 10.0
 spread_degrees = 0.8
 reload_duration = 1.35
-hip_position = Vector3(0.27, -0.21, -0.52)
-ads_position = Vector3(0.02, -0.03, -0.58)
+hip_position = Vector3(0.17, -0.13, -0.32)
+ads_position = Vector3(-0.01, -0.105, -0.61)
 hip_rotation_degrees = Vector3(0, 0, 0)
 ads_rotation_degrees = Vector3(0, 0, 0)
 muzzle_position = Vector3(0, -0.02, -0.55)

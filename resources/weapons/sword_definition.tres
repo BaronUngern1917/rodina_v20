@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="WeaponDefinition" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/WeaponDefinition.gd" id="1_definition"]
+[ext_resource type="PackedScene" path="res://scenes/SovietSword.tscn" id="2_scene"]
+
+[resource]
+script = ExtResource("1_definition")
+weapon_id = &"sword"
+display_name = "Советский меч"
+equip_key_physical_code = 49
+visual_scene = ExtResource("2_scene")
+magazine_capacity = 0
+reserve_magazines = 0
+rounds_per_second = 0.0
+spread_degrees = 0.0
+reload_duration = 0.0
+hip_position = Vector3(0.10, -0.16, -0.48)
+ads_position = Vector3(0.10, -0.16, -0.48)
+hip_rotation_degrees = Vector3(0, 0, 0)
+ads_rotation_degrees = Vector3(0, 0, 0)

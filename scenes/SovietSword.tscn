@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/weapons/soviet_sword.glb" id="1_sword"]
+
+[node name="SovietSword" type="Node3D"]
+scale = Vector3(1.15, 1.15, 1.15)
+rotation_degrees = Vector3(48, -50, 0)
+
+[node name="SwordModel" parent="." instance=ExtResource("1_sword")]

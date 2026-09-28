@@ -7,6 +7,6 @@
 [node name="PPSHVisual" type="Node3D"]
 position = Vector3(0, -0.2214, -0.0481)
 rotation_degrees = Vector3(0, -90, 0)
-scale = Vector3(0.0015, 0.0015, 0.0015)
+scale = Vector3(0.0017, 0.0017, 0.0017)
 
 [node name="PPSHModel" parent="." instance=ExtResource("1_ppsh")]

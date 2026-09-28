@@ -564,8 +564,8 @@ func build_barracks():
 	# The supplied fork is a local GLB and is only visible during the toilet task.
 	var fork_visual := (load("res://assets/props/lowpoly_fork.glb") as PackedScene).instantiate() as Node3D
 	fork_visual.name = "ForkVisual"
-	fork_visual.scale = Vector3.ONE * 0.04
-	fork_visual.rotation_degrees.x = -90.0
+	fork_visual.scale = Vector3.ONE * 0.055
+	fork_visual.rotation_degrees = Vector3(0.0, 90.0, 0.0)
 	$Player/Head/Camera3D/Fork.add_child(fork_visual)
 
 func build_yard():
@@ -754,7 +754,7 @@ func build_armory():
 		buryat_visual.scale = Vector3.ONE * 0.01
 		# Face the yard entrance so Buryat naturally addresses the approaching player.
 		buryat_visual.rotation.y = 0.0
-		buryat_visual.position.y = -0.95
+		buryat_visual.position.y = -0.67
 		var model_root := buryat_visual.find_child("RootNode", true, false) as Node3D
 		if model_root:
 			var selected_parts := [
@@ -873,30 +873,41 @@ func build_truck(pos: Vector3):
 	add_child(t)
 	# Seat the existing ZiS at the average of the four wheel contact points and
 	# pitch its chassis to the local terrain grade without changing its route.
-	var wheelbase_half := 2.1
-	var track_half := 0.9
-	var rear_height := (
-		terrain_height_at(Vector3(pos.x - wheelbase_half, pos.y, pos.z - track_half)) +
-		terrain_height_at(Vector3(pos.x - wheelbase_half, pos.y, pos.z + track_half))
-	) * 0.5
+	var wheelbase_half := 2.5
+	var track_half := 1.09
+	# The model's longitudinal local X axis points along world -Z after the
+	# existing 90 degree yaw. Sample the four actual wheel locations in that frame.
 	var front_height := (
-		terrain_height_at(Vector3(pos.x + wheelbase_half, pos.y, pos.z - track_half)) +
-		terrain_height_at(Vector3(pos.x + wheelbase_half, pos.y, pos.z + track_half))
+		terrain_height_at(Vector3(pos.x - track_half, pos.y, pos.z - wheelbase_half)) +
+		terrain_height_at(Vector3(pos.x + track_half, pos.y, pos.z - wheelbase_half))
 	) * 0.5
-	t.position.y = (rear_height + front_height) * 0.5 + 0.004
-	t.rotation.z = atan2(front_height - rear_height, wheelbase_half * 2.0)
+	var rear_height := (
+		terrain_height_at(Vector3(pos.x - track_half, pos.y, pos.z + wheelbase_half)) +
+		terrain_height_at(Vector3(pos.x + track_half, pos.y, pos.z + wheelbase_half))
+	) * 0.5
+	var left_height := (
+		terrain_height_at(Vector3(pos.x - track_half, pos.y, pos.z - wheelbase_half)) +
+		terrain_height_at(Vector3(pos.x - track_half, pos.y, pos.z + wheelbase_half))
+	) * 0.5
+	var right_height := (
+		terrain_height_at(Vector3(pos.x + track_half, pos.y, pos.z - wheelbase_half)) +
+		terrain_height_at(Vector3(pos.x + track_half, pos.y, pos.z + wheelbase_half))
+	) * 0.5
+	t.position.y = (front_height + rear_height + left_height + right_height) * 0.25 + 0.004
+	t.rotation.x = atan2(front_height - rear_height, wheelbase_half * 2.0)
+	t.rotation.z = atan2(right_height - left_height, track_half * 2.0)
 	var truck_model := load("res://assets/vehicles/zis-5b.glb") as PackedScene
 	var truck_visual := truck_model.instantiate() as Node3D
 	truck_visual.name = "ZIS5Visual"
 	# Godot's GLTF importer converts the centimeter-authored mesh to meters;
-	# 0.95 keeps its ~5.8 m length aligned with the existing collision volume.
-	truck_visual.scale = Vector3.ONE * 0.95
+	# 1.25 keeps the truck at believable full vehicle scale beside the player.
+	truck_visual.scale = Vector3.ONE * 1.25
 	truck_visual.rotation_degrees.y = 90.0
 	t.add_child(truck_visual)
 	var cs := CollisionShape3D.new()
-	cs.position.y = 1.03
+	cs.position.y = 1.23
 	var sh := BoxShape3D.new()
-	sh.size = Vector3(2.23, 2.07, 5.8)
+	sh.size = Vector3(2.96, 2.72, 7.63)
 	cs.shape = sh
 	t.add_child(cs)
 

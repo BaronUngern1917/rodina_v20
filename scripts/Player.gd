@@ -37,8 +37,10 @@ var standing_camera_y := 0.15
 var muzzle_flash: MeshInstance3D
 var muzzle_light: OmniLight3D
 const ONE_SHOT_AUDIO_POOL_SCRIPT: Script = preload("res://scripts/OneShotAudioPool.gd")
-var weapon_sound_pool: Node3D
 var footstep_sound_pool: Node3D
+var ppsh_single_sound: AudioStreamPlayer3D
+const SWORD_ATTACK_DURATION := 0.38
+var sword_attack_remaining := 0.0
 
 @onready var head: Node3D = $Head
 @onready var camera: Camera3D = $Head/Camera3D
@@ -67,17 +69,17 @@ func setup_weapon():
         weapon_catalog.append(ppsh)
         max_ammo = ppsh.magazine_capacity
         ammo = max_ammo
+    var sword := load("res://resources/weapons/sword_definition.tres") as WeaponDefinition
+    if sword:
+        weapon_catalog.append(sword)
+        owned_weapons.append(sword)
+        weapon_ammo[sword.weapon_id] = 0
+        weapon_reserve_ammo[sword.weapon_id] = 0
     weapon.visible = false
     fork.visible = false
     camera.fov = 75.0
 
 func setup_player_audio():
-    weapon_sound_pool = ONE_SHOT_AUDIO_POOL_SCRIPT.new() as Node3D
-    weapon_sound_pool.name = "WeaponOneShotPool"
-    weapon_sound_pool.position.y = 1.0
-    add_child(weapon_sound_pool)
-    weapon_sound_pool.call("configure", null, 0.09, 0.09, -3.0, 32.0, 5.0, 8)
-
     footstep_sound_pool = ONE_SHOT_AUDIO_POOL_SCRIPT.new() as Node3D
     footstep_sound_pool.name = "FootstepOneShotPool"
     footstep_sound_pool.position.y = -0.75
@@ -85,6 +87,24 @@ func setup_player_audio():
     var footstep_stream := load("res://assets/audio/fast-walking-on-a-concrete-surface.mp3") as AudioStream
     footstep_sound_pool.call("configure", footstep_stream, 0.24, 0.35, -12.0, 18.0, 3.0, 4)
     footstep_sound_pool.call("set_sample_starts", PackedFloat32Array([0.0, 0.33, 0.68, 1.03, 1.38, 1.73, 2.1, 2.45, 2.8, 3.2, 3.6]))
+
+    ppsh_single_sound = _create_ppsh_sample_player("PPSHSingleSound", "res://assets/audio/ppsh_single.wav")
+
+func _create_ppsh_sample_player(player_name: String, stream_path: String) -> AudioStreamPlayer3D:
+    var sample_player := AudioStreamPlayer3D.new()
+    sample_player.name = player_name
+    sample_player.stream = load(stream_path) as AudioStream
+    sample_player.position.y = 1.0
+    sample_player.volume_db = -3.0
+    sample_player.max_distance = 32.0
+    sample_player.unit_size = 5.0
+    sample_player.max_polyphony = 12
+    add_child(sample_player)
+    return sample_player
+
+func _queue_ppsh_fire_sound() -> void:
+    if ppsh_single_sound and ppsh_single_sound.stream:
+        ppsh_single_sound.play()
 
 func _unhandled_input(event):
     if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
@@ -100,11 +120,14 @@ func _unhandled_input(event):
                 toggle_weapon(definition)
 
     if event is InputEventMouseButton and event.pressed:
+        if event.button_index == MOUSE_BUTTON_LEFT and weapon_visible and current_weapon_definition != null and current_weapon_definition.weapon_id == &"sword" and sword_attack_remaining <= 0.0:
+            sword_attack_remaining = SWORD_ATTACK_DURATION
         Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func _physics_process(delta):
     fire_cooldown = maxf(0.0, fire_cooldown - delta)
     recoil_offset = move_toward(recoil_offset, 0.0, delta * 0.09)
+    sword_attack_remaining = maxf(0.0, sword_attack_remaining - delta)
 
     var crouch_requested := Input.is_action_pressed("crouch")
     if crouch_requested and not is_crouched:
@@ -132,7 +155,7 @@ func _physics_process(delta):
     move_and_slide()
 
     var actual_movement := Vector2(velocity.x, velocity.z).length() > 0.25
-    aim = weapon_visible and can_shoot and not reloading and Input.is_action_pressed("aim")
+    aim = weapon_visible and can_shoot and current_weapon_definition != null and current_weapon_definition.weapon_id == &"ppsh" and not reloading and Input.is_action_pressed("aim")
     update_footsteps(delta, actual_movement, sprinting)
     update_weapon_pose(delta, actual_movement)
     if muzzle_timer > 0.0:
@@ -142,9 +165,9 @@ func _physics_process(delta):
         if muzzle_light:
             muzzle_light.light_energy = 2.0 if muzzle_timer > 0.0 else 0.0
 
-    if weapon_visible and can_shoot and not reloading and Input.is_action_pressed("shoot"):
+    if weapon_visible and can_shoot and current_weapon_definition != null and current_weapon_definition.weapon_id == &"ppsh" and not reloading and Input.is_action_pressed("shoot"):
         shoot()
-    if Input.is_action_just_pressed("reload") and weapon_visible and can_shoot:
+    if Input.is_action_just_pressed("reload") and weapon_visible and can_shoot and current_weapon_definition != null and current_weapon_definition.weapon_id == &"ppsh":
         reload_weapon()
     if Input.is_action_just_pressed("shout"):
         get_tree().call_group("game", "player_shout")
@@ -201,6 +224,24 @@ func update_weapon_pose(delta: float, moving: bool):
         var sway_scale := 0.25 if aim else (0.55 if is_crouched else 1.0)
         target_position += Vector3(sin(walk_cycle) * 0.012, absf(cos(walk_cycle)) * 0.016, 0.0) * sway_scale
         target_rotation.z += sin(walk_cycle) * 0.8 * sway_scale
+    if current_weapon_definition.weapon_id == &"sword" and sword_attack_remaining > 0.0:
+        var attack_progress := 1.0 - sword_attack_remaining / SWORD_ATTACK_DURATION
+        var windup_position := Vector3(0.10, 0.04, 0.025)
+        var strike_position := Vector3(-0.14, -0.09, -0.16)
+        var windup_rotation := Vector3(-12.0, -20.0, -28.0)
+        var strike_rotation := Vector3(24.0, 34.0, 54.0)
+        if attack_progress < 0.18:
+            var windup_progress := attack_progress / 0.18
+            target_position += windup_position * windup_progress
+            target_rotation += windup_rotation * windup_progress
+        elif attack_progress < 0.48:
+            var strike_progress := (attack_progress - 0.18) / 0.30
+            target_position += windup_position.lerp(strike_position, strike_progress)
+            target_rotation += windup_rotation.lerp(strike_rotation, strike_progress)
+        else:
+            var recovery_progress := (attack_progress - 0.48) / 0.52
+            target_position += strike_position.lerp(Vector3.ZERO, recovery_progress)
+            target_rotation += strike_rotation.lerp(Vector3.ZERO, recovery_progress)
     weapon.position = weapon.position.lerp(target_position, minf(1.0, delta * 14.0))
     weapon.rotation_degrees = weapon.rotation_degrees.lerp(target_rotation, minf(1.0, delta * 14.0))
 
@@ -210,6 +251,7 @@ func toggle_weapon(definition: WeaponDefinition):
     if current_weapon_definition == definition and weapon_visible:
         weapon_visible = false
         aim = false
+        sword_attack_remaining = 0.0
         weapon.visible = false
         return
     equip_weapon(definition)
@@ -218,13 +260,10 @@ func equip_weapon(definition: WeaponDefinition):
     if definition == null or not owned_weapons.has(definition):
         return
     current_weapon_definition = definition
+    sword_attack_remaining = 0.0
     max_ammo = definition.magazine_capacity
     ammo = int(weapon_ammo.get(definition.weapon_id, definition.magazine_capacity))
     reserve_ammo = int(weapon_reserve_ammo.get(definition.weapon_id, 0))
-    if weapon_sound_pool:
-        weapon_sound_pool.call("set_stream", definition.fire_sound)
-        if definition.weapon_id == &"ppsh":
-            weapon_sound_pool.call("set_sample_starts", PackedFloat32Array([10.0, 10.09, 10.18, 10.27, 10.36, 10.45, 10.54, 10.63]))
     var visual_name := "WeaponVisual_%s" % str(definition.weapon_id)
     var visual := weapon.get_node_or_null(visual_name) as Node3D
     if visual == null and definition.visual_scene:
@@ -252,9 +291,10 @@ func grant_weapon(definition: WeaponDefinition):
         owned_weapons.append(definition)
         weapon_ammo[definition.weapon_id] = definition.magazine_capacity
         weapon_reserve_ammo[definition.weapon_id] = definition.magazine_capacity * definition.reserve_magazines
-    can_shoot = not owned_weapons.is_empty()
+    can_shoot = owned_weapons.any(func(owned: WeaponDefinition) -> bool: return owned.weapon_id == &"ppsh")
     equip_weapon(definition)
-    create_weapon_effects(definition)
+    if definition.weapon_id == &"ppsh":
+        create_weapon_effects(definition)
 
 func create_weapon_effects(definition: WeaponDefinition):
     if muzzle_flash == null:
@@ -282,7 +322,7 @@ func create_weapon_effects(definition: WeaponDefinition):
     muzzle_flash.position = definition.muzzle_position
 
 func shoot():
-    if not can_shoot or not weapon_visible or reloading or ammo <= 0 or fire_cooldown > 0.0 or current_weapon_definition == null:
+    if not can_shoot or not weapon_visible or reloading or ammo <= 0 or fire_cooldown > 0.0 or current_weapon_definition == null or current_weapon_definition.weapon_id != &"ppsh":
         return
     var game = get_tree().get_first_node_in_group("game")
     if game == null or game.state != "range":
@@ -296,8 +336,7 @@ func shoot():
     muzzle_flash.visible = true
     muzzle_light.light_energy = 2.0
     recoil_offset += 0.014
-    if weapon_sound_pool:
-        weapon_sound_pool.call("play_random_one_shot")
+    _queue_ppsh_fire_sound()
 
     var spread := deg_to_rad(current_weapon_definition.spread_degrees)
     var direction := -camera.global_transform.basis.z
@@ -312,7 +351,7 @@ func shoot():
     get_tree().call_group("game", "weapon_fired")
 
 func reload_weapon():
-    if not can_shoot or not weapon_visible or reloading or current_weapon_definition == null or ammo >= current_weapon_definition.magazine_capacity or reserve_ammo <= 0:
+    if not can_shoot or not weapon_visible or reloading or current_weapon_definition == null or current_weapon_definition.weapon_id != &"ppsh" or ammo >= current_weapon_definition.magazine_capacity or reserve_ammo <= 0:
         return
     reloading = true
     aim = false
