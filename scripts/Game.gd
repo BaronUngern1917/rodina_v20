@@ -36,7 +36,7 @@ const TEXT_OUTLINE_SIZE := 5
 func _ready():
 	add_to_group("game")
 	make_environment()
-	build_world()
+	await build_world()
 	build_ui()
 	setup_audio()
 	player.process_mode = Node.PROCESS_MODE_DISABLED
@@ -99,6 +99,74 @@ func add_box_collider(parent: Node, pos: Vector3, size: Vector3):
 	body.add_child(shape)
 	parent.add_child(body)
 
+func get_visual_local_bounds(visual_root: Node3D) -> AABB:
+	var has_bounds := false
+	var bounds := AABB()
+	var pending: Array[Node] = [visual_root]
+	while not pending.is_empty():
+		var current: Node = pending.pop_back()
+		if current is MeshInstance3D:
+			var mesh_instance := current as MeshInstance3D
+			if mesh_instance.mesh and mesh_instance.is_visible_in_tree():
+				var relative_transform := visual_root.global_transform.affine_inverse() * mesh_instance.global_transform
+				var mesh_bounds := mesh_instance.get_aabb()
+				for x in [mesh_bounds.position.x, mesh_bounds.end.x]:
+					for y in [mesh_bounds.position.y, mesh_bounds.end.y]:
+						for z in [mesh_bounds.position.z, mesh_bounds.end.z]:
+							var point := relative_transform * Vector3(x, y, z)
+							if has_bounds:
+								bounds = bounds.expand(point)
+							else:
+								bounds = AABB(point, Vector3.ZERO)
+								has_bounds = true
+		for child in current.get_children():
+			pending.append(child)
+	return bounds if has_bounds else AABB(Vector3.ZERO, Vector3.ONE)
+
+func add_model_wall(parent: Node3D, wall_scene: PackedScene, wall_name: String, center: Vector3, local_size: Vector3, yaw: float) -> StaticBody3D:
+	var visual := wall_scene.instantiate() as Node3D
+	visual.name = wall_name + "Visual"
+	parent.add_child(visual)
+	var source_bounds := get_visual_local_bounds(visual)
+	visual.scale = local_size / source_bounds.size
+	visual.rotation.y = yaw
+	var scaled_center := (source_bounds.position + source_bounds.size * 0.5) * visual.scale
+	visual.position = center - Basis(Vector3.UP, yaw) * scaled_center
+
+	var body := StaticBody3D.new()
+	body.name = wall_name + "Collision"
+	body.position = center
+	body.rotation.y = yaw
+	var collision := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = local_size
+	collision.shape = box
+	body.add_child(collision)
+	parent.add_child(body)
+	return body
+
+func place_supply_part(parent: Node3D, source_root: Node3D, source_name: String, display_name: String, center: Vector3, uniform_scale: float, yaw: float, pitch: float = 0.0) -> void:
+	var part := source_root.find_child(source_name, true, false) as Node3D
+	if part == null:
+		return
+	part.visible = true
+	part.reparent(parent, true)
+	part.name = display_name
+	part.scale = Vector3.ONE * uniform_scale
+	part.rotation.x += pitch
+	part.rotation.y += yaw
+	var local_bounds := get_visual_local_bounds(part)
+	var basis := part.transform.basis
+	var local_center := local_bounds.get_center()
+	var center_offset := basis * local_center
+	var bottom_offset := INF
+	for x in [local_bounds.position.x, local_bounds.end.x]:
+		for y in [local_bounds.position.y, local_bounds.end.y]:
+			for z in [local_bounds.position.z, local_bounds.end.z]:
+				bottom_offset = minf(bottom_offset, (basis * Vector3(x, y, z)).y)
+	var ground_y := terrain_height_at(center) + center.y
+	part.position = Vector3(center.x - center_offset.x, ground_y - bottom_offset, center.z - center_offset.z)
+
 func create_door(parent: Node, name: String, pos: Vector3, width: float, color: Color, locked := false, action := "Открыть дверь", target := "yard", height := 3.0) -> StaticBody3D:
 	# Door origin is the hinge/jamb, not the center of the panel.
 	var door := StaticBody3D.new()
@@ -134,12 +202,17 @@ func create_door(parent: Node, name: String, pos: Vector3, width: float, color: 
 
 func build_world():
 	build_ground()
+	# Let the query-only terrain mesh enter the physics space before we place
+	# roads, fence segments, and props against its actual surface.
+	await get_tree().physics_frame
 	build_fence()
 	build_barracks()
 	build_yard()
 	build_armory()
 	build_range()
-	build_truck(Vector3(13, 0.55, -104))
+	var truck_position := Vector3(13, 0.0, -104)
+	truck_position.y = terrain_height_at(truck_position) + 0.004
+	build_truck(truck_position)
 	build_road()
 	build_forest()
 
@@ -155,6 +228,38 @@ func build_ground():
 	terrain.rotation.y = deg_to_rad(72.0)
 	terrain.position = Vector3(4.326, 75.0, -86.65)
 	add_child(terrain)
+	# Keep the source photograph's surface detail, but reduce the strong yellow
+	# cast seen in the imported material under the scene's daylight.
+	for candidate in terrain.find_children("*", "MeshInstance3D", true, false):
+		var terrain_mesh := candidate as MeshInstance3D
+		if terrain_mesh.mesh == null:
+			continue
+		for surface_index in range(terrain_mesh.mesh.get_surface_count()):
+			var source_material := terrain_mesh.mesh.surface_get_material(surface_index)
+			if source_material is StandardMaterial3D:
+				var toned_material := (source_material as StandardMaterial3D).duplicate() as StandardMaterial3D
+				toned_material.albedo_color = Color(0.48, 0.56, 0.42)
+				terrain_mesh.set_surface_override_material(surface_index, toned_material)
+		var terrain_body := StaticBody3D.new()
+		terrain_body.name = terrain_mesh.name + "TerrainQuery"
+		# Layer 1 keeps the terrain solid for the default player collision mask;
+		# layer 2 remains available to the placement height queries below.
+		terrain_body.collision_layer = 3
+		terrain_body.collision_mask = 0
+		var terrain_collision := CollisionShape3D.new()
+		terrain_collision.shape = terrain_mesh.mesh.create_trimesh_shape()
+		terrain_body.add_child(terrain_collision)
+		add_child(terrain_body)
+		terrain_body.global_transform = terrain_mesh.global_transform
+
+func terrain_height_at(point: Vector3) -> float:
+	var query := PhysicsRayQueryParameters3D.create(
+		Vector3(point.x, 120.0, point.z),
+		Vector3(point.x, -20.0, point.z)
+	)
+	query.collision_mask = 2
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	return float(hit.position.y) if not hit.is_empty() else point.y
 
 func build_fence():
 	var fence_scene: PackedScene = load("res://assets/props/wooden_fences__low_poly.glb") as PackedScene
@@ -163,25 +268,43 @@ func build_fence():
 	var fence: Node3D = Node3D.new()
 	fence.name = "PerimeterFence"
 	add_child(fence)
+	var west_edge := [
+		Vector3(-32.5, 0.0, 35.0),
+		Vector3(-32.5, 0.0, -30.0),
+		Vector3(-22.0, 0.0, -40.0),
+		Vector3(-22.0, 0.0, -100.0),
+		Vector3(-18.0, 0.0, -112.0)
+	]
+	var east_edge := [
+		Vector3(32.5, 0.0, 35.0),
+		Vector3(32.5, 0.0, -30.0),
+		Vector3(28.0, 0.0, -40.0),
+		Vector3(28.0, 0.0, -100.0),
+		Vector3(20.0, 0.0, -112.0)
+	]
+	add_fence_line(fence, fence_scene, Vector3(-32.5, 0.0, 35.0), Vector3(32.5, 0.0, 35.0))
+	add_fence_line(fence, fence_scene, Vector3(-18.0, 0.0, -112.0), Vector3(20.0, 0.0, -112.0))
+	for edge in [west_edge, east_edge]:
+		for index in range(edge.size() - 1):
+			add_fence_line(fence, fence_scene, edge[index], edge[index + 1])
 
+func add_fence_line(parent: Node3D, fence_scene: PackedScene, start: Vector3, finish: Vector3) -> void:
+	var delta := finish - start
+	delta.y = 0.0
+	var length := delta.length()
+	if length < 0.01:
+		return
 	var segment_length := 5.872
-	var half_width := 42.5
-	var front_z := 35.0
-	var back_z := -112.0
-	var horizontal_count: int = max(1, roundi((half_width * 2.0) / segment_length))
-	var horizontal_spacing := (half_width * 2.0) / float(horizontal_count)
-	for z in [back_z, front_z]:
-		for index in range(horizontal_count):
-			var center_x := -half_width + horizontal_spacing * (float(index) + 0.5)
-			add_fence_segment(fence, fence_scene, Vector3(center_x, 0.0, z), 0.0, horizontal_spacing / segment_length)
-
-	var side_length := front_z - back_z
-	var side_count: int = max(1, roundi(side_length / segment_length))
-	var side_spacing := side_length / float(side_count)
-	for x in [-half_width, half_width]:
-		for index in range(side_count):
-			var center_z := back_z + side_spacing * (float(index) + 0.5)
-			add_fence_segment(fence, fence_scene, Vector3(x, 0.0, center_z), PI * 0.5, side_spacing / segment_length)
+	var count := maxi(1, roundi(length / segment_length))
+	var spacing := length / float(count)
+	var direction := delta / length
+	# This fence asset runs along local X, unlike the road segment below which
+	# runs along local Z.
+	var yaw := atan2(-direction.z, direction.x)
+	for index in range(count):
+		var center := start + direction * (spacing * (float(index) + 0.5))
+		center.y = terrain_height_at(center)
+		add_fence_segment(parent, fence_scene, center, yaw, spacing / segment_length)
 
 func add_fence_segment(parent: Node3D, fence_scene: PackedScene, center: Vector3, yaw: float, segment_scale: float):
 	var segment := Node3D.new()
@@ -254,13 +377,14 @@ func add_road_path(parent: Node3D, road_scene: PackedScene, points: Array[Vector
 			var segment := Node3D.new()
 			segment.name = "%s_%03d" % [name_prefix, segment_index]
 			segment.position = start + direction * along
+			segment.position.y = terrain_height_at(segment.position)
 			segment.rotation.y = yaw
 			parent.add_child(segment)
 			var visual := road_scene.instantiate() as Node3D
 			visual.name = "RoadVisual"
 			visual.scale = Vector3(width_scale, 1.0, 1.0)
-			# Compensate for the imported mesh pivot; place its lower surface on
-			# the retained y=0 safety floor with a few millimetres of clearance.
+			# Compensate for the imported mesh pivot; its base now follows the
+			# sampled map surface rather than the flat fallback floor.
 			visual.position = Vector3(-0.143 * width_scale, 0.492, -0.034)
 			segment.add_child(visual)
 			segment_index += 1
@@ -271,6 +395,10 @@ func segment_length_for_scale(segment_scale: float) -> float:
 func build_barracks():
 	var b := Node3D.new()
 	b.name = "Barracks"
+	# The map rises under the barracks. Level the interior floor 0.48 m above
+	# the terrain while leaving the approved barracks mesh at its original
+	# world transform.
+	b.position.y = 0.48
 	add_child(b)
 
 	# Use the furnished full barracks at its authored proportions (about 6 x 9 m).
@@ -278,7 +406,7 @@ func build_barracks():
 	var barracks_visual := load("res://assets/props/small_barracks.glb").instantiate() as Node3D
 	barracks_visual.name = "BarracksFullModel"
 	barracks_visual.scale = Vector3.ONE
-	barracks_visual.position = Vector3(0, 0.06, 20.3)
+	barracks_visual.position = Vector3(0, -0.42, 20.3)
 	var built_in_door := barracks_visual.find_child("door_low_003", true, false)
 	if built_in_door:
 		built_in_door.visible = false
@@ -286,6 +414,7 @@ func build_barracks():
 	if ground_disc:
 		ground_disc.visible = false
 	b.add_child(barracks_visual)
+	mesh_box(b, Vector3(0.0, 0.0, 20.3), Vector3(5.72, 0.12, 9.2), Color("#51402d"), true)
 
 	# Wall colliders follow the model's ~5.7 x 9.4 m footprint. The south
 	# doorway (at z ~= 16) remains a real opening for the interactive leaf.
@@ -304,10 +433,10 @@ func build_barracks():
 				var bed := bunk_scene.instantiate() as Node3D
 				bed.name = "BunkBed_%s_%s" % [str(x), str(z)]
 				bed.scale = Vector3.ONE * 0.36
-				bed.position = Vector3(x, 0.0, z)
+				bed.position = Vector3(x, 0.06, z)
 				b.add_child(bed)
 				var bed_body := StaticBody3D.new()
-				bed_body.position = Vector3(x, 0.76, z)
+				bed_body.position = Vector3(x, 0.82, z)
 				var bed_shape := CollisionShape3D.new()
 				var bed_box := BoxShape3D.new()
 				bed_box.size = Vector3(1.88, 1.53, 1.06)
@@ -333,25 +462,31 @@ func build_barracks():
 		b.add_child(outside_poster)
 
 	# Main exterior exit. It becomes usable only after the toilet sequence is finished.
-	var yard_exit := create_door(b, "BarracksExitDoor", Vector3(1.65, 1.05, 16.03), 2.2, Color("#49382b"), true, "Выйти во двор", "yard", 2.1)
+	var yard_exit := create_door(b, "BarracksExitDoor", Vector3(1.65, 1.53, 16.03), 2.2, Color("#49382b"), true, "Выйти во двор", "yard", 2.1)
 	yard_exit.action_text = "Выйти во двор"
+	mesh_box(b, Vector3(1.65, -0.13, 15.68), Vector3(2.2, 0.38, 0.7), Color("#51402d"), true)
 
 	# Toilet blockout fits into the rear-right corner of the actual interior.
-	var toilet_entry := create_door(b, "ToiletDoor", Vector3(2.5, 1.0, 22.85), 1.0, Color("#49382b"), true, "Открыть дверь в туалет", "toilet", 2.0)
+	var toilet_entry := create_door(b, "ToiletDoor", Vector3(2.5, 1.05, 22.83), 1.0, Color("#49382b"), true, "Открыть дверь в туалет", "toilet", 2.1)
 	toilet_entry.action_text = "Открыть дверь в туалет"
 	toilet_entry.auto_close_after_entry = true
 
-	# Interior toilet partition and colliders, with its front doorway left clear.
-	add_box_collider(b, Vector3(1.31, 1.2, 22.83), Vector3(0.38, 2.4, 0.12))
-	add_box_collider(b, Vector3(2.62, 1.2, 22.83), Vector3(0.24, 2.4, 0.12))
-	add_box_collider(b, Vector3(1.12, 1.2, 23.95), Vector3(0.12, 2.4, 2.3))
-	add_box_collider(b, Vector3(2.74, 1.2, 23.95), Vector3(0.12, 2.4, 2.3))
-	add_box_collider(b, Vector3(1.93, 1.2, 25.08), Vector3(1.74, 2.4, 0.12))
+	# Replace the box partition with local wooden wall panels. The front jambs
+	# keep the 1 m door opening and the passage through the barracks.
+	# A local timber floor hides the uneven terrain below the small cubicle.
+	mesh_box(b, Vector3(1.93, 0.0, 23.95), Vector3(1.62, 0.12, 2.25), Color("#51402d"), true)
+	var toilet_wall_scene := load("res://assets/props/wooden_wall.glb") as PackedScene
+	if toilet_wall_scene:
+		add_model_wall(b, toilet_wall_scene, "ToiletFrontLeft", Vector3(1.31, 1.2, 22.83), Vector3(0.38, 2.4, 0.12), 0.0)
+		add_model_wall(b, toilet_wall_scene, "ToiletFrontRight", Vector3(2.62, 1.2, 22.83), Vector3(0.24, 2.4, 0.12), 0.0)
+		add_model_wall(b, toilet_wall_scene, "ToiletLeftWall", Vector3(1.12, 1.2, 23.95), Vector3(2.3, 2.4, 0.12), PI * 0.5)
+		add_model_wall(b, toilet_wall_scene, "ToiletRightWall", Vector3(2.74, 1.2, 23.95), Vector3(2.3, 2.4, 0.12), PI * 0.5)
+		add_model_wall(b, toilet_wall_scene, "ToiletRearWall", Vector3(1.93, 1.2, 25.08), Vector3(1.74, 2.4, 0.12), 0.0)
 
 	# Senior soldier retains the same script and interaction in an open sightline.
 	var officer := StaticBody3D.new()
 	officer.name = "SeniorSoldier"
-	officer.position = Vector3(-2.05, 0.95, 23.9)
+	officer.position = Vector3(-2.05, 1.49, 23.9)
 	officer.set_script(load("res://scripts/Officer.gd"))
 	add_child(officer)
 	var officer_scene := load("res://assets/props/ussr_infantry_-_call_of_duty_world_at_war.glb") as PackedScene
@@ -382,16 +517,12 @@ func build_barracks():
 	oc.shape = os
 	officer.add_child(oc)
 
-	# Light visual partition surfaces; the collider boxes above preserve the door gap.
-	mesh_box(b, Vector3(1.31, 1.2, 22.83), Vector3(0.38, 2.4, 0.12), Color("#5b4939"), false)
-	mesh_box(b, Vector3(2.63, 1.2, 22.83), Vector3(0.24, 2.4, 0.12), Color("#5b4939"), false)
-	mesh_box(b, Vector3(1.12, 1.2, 23.95), Vector3(0.12, 2.4, 2.3), Color("#5b4939"), false)
-	mesh_box(b, Vector3(2.74, 1.2, 23.95), Vector3(0.12, 2.4, 2.3), Color("#5b4939"), false)
+	# A simple lid keeps the cubicle readable without closing its doorway.
 	mesh_box(b, Vector3(1.93, 2.42, 23.95), Vector3(1.74, 0.12, 2.3), Color("#514238"), false)
 
 	var toilet := StaticBody3D.new()
 	toilet.name = "Toilet"
-	toilet.position = Vector3(1.93, 0.0, 24.0)
+	toilet.position = Vector3(1.93, 0.54, 24.0)
 	toilet.set_script(load("res://scripts/Toilet.gd"))
 	add_child(toilet)
 	var toilet_visual := (load("res://assets/props/dirty_toilet.glb") as PackedScene).instantiate() as Node3D
@@ -447,73 +578,84 @@ func build_yard():
 	var tent_scene := load("res://assets/props/tent.glb") as PackedScene
 	if tent_scene:
 		var tent_positions := [
-			[Vector3(-25.5, 0.0, 4.0), 0.0],
-			[Vector3(25.5, 0.0, 4.0), PI],
-			[Vector3(-25.5, 0.0, -31.0), 0.0],
-			[Vector3(25.5, 0.0, -31.0), PI]
+			[Vector3(-25.5, 0.203, 4.0), 0.0],
+			[Vector3(25.5, -0.002, 4.0), PI],
+			[Vector3(-25.5, 0.482, -31.0), 0.0],
+			[Vector3(25.5, 0.218, -31.0), PI]
 		]
 		for index in range(tent_positions.size()):
 			var tent_data: Array = tent_positions[index]
 			var tent := tent_scene.instantiate() as Node3D
 			tent.name = "CampTent_%02d" % (index + 1)
-			# This FBX is exported in centimeters without a root unit scale.
-			tent.scale = Vector3.ONE * 0.0055
-			tent.position = tent_data[0]
+			# This FBX is exported in centimeters; 0.0075 gives a field tent
+			# close to 7.1 x 7.6 m and 2 m tall at the current player scale.
+			tent.scale = Vector3.ONE * 0.0075
+			var tent_position: Vector3 = tent_data[0]
+			tent_position.y = terrain_height_at(tent_position)
+			tent.position = tent_position
 			tent.rotation.y = float(tent_data[1])
 			y.add_child(tent)
 			var tent_body := StaticBody3D.new()
-			tent_body.position = Vector3(tent_data[0].x, 0.78, tent_data[0].z)
+			tent_body.position = tent_position + Vector3(0.0, 0.97, 0.0)
 			var tent_shape := CollisionShape3D.new()
 			var tent_box := BoxShape3D.new()
-			tent_box.size = Vector3(5.3, 1.56, 5.7)
+			tent_box.size = Vector3(7.1, 1.94, 7.6)
 			tent_shape.shape = tent_box
 			tent_body.add_child(tent_shape)
 			y.add_child(tent_body)
 
-	mesh_cylinder(y, Vector3(-9, 2.5, 5), 0.05, 5.0, Color("#5b5a4c"))
-	mesh_box(y, Vector3(-8.2, 4.1, 5), Vector3(1.7, 0.9, 0.06), Color("#9b2e2a"), false)
+	var flag_scene := load("res://assets/props/soviet_flag.glb") as PackedScene
+	if flag_scene:
+		var flag := flag_scene.instantiate() as Node3D
+		flag.name = "EntranceSovietFlag"
+		# The imported model is upright and extends 5.64 m below its origin.
+		# Raise its origin so the pole's base meets the terrain.
+		flag.position = Vector3(-8.0, terrain_height_at(Vector3(-8.0, 0.0, 5.0)) + 5.65, 5.0)
+		y.add_child(flag)
+	var billboard_scene := load("res://assets/props/lowpoly_abandoned_soviet_billboard.glb") as PackedScene
+	if billboard_scene:
+		var billboard := billboard_scene.instantiate() as Node3D
+		billboard.name = "EntranceSatiricalBillboard"
+		billboard.scale = Vector3.ONE * 0.2
+		billboard.position = Vector3(-14.0, 0.35, 5.0)
+		y.add_child(billboard)
 
-	# A single prop cluster beside the far storage shed, outside the clear route
-	# from the barracks to the range. Its source GLB contains tires, barrels,
-	# timber and crates in one deliberately compact salvage pile.
-	var yard_props := load("res://assets/props/assets_pack_free_survivalpostapo.glb").instantiate() as Node3D
-	yard_props.name = "StorageYardProps"
-	yard_props.scale = Vector3.ONE * 0.72
-	yard_props.position = Vector3(12, 0.82, -43) - Vector3(8.97, 0, -11.36) * yard_props.scale
-	y.add_child(yard_props)
-	var storage_collision := StaticBody3D.new()
-	storage_collision.name = "StoragePropsCollision"
-	storage_collision.position = Vector3(12.0, 0.8, -43.0)
-	var storage_shape := CollisionShape3D.new()
-	var storage_box := BoxShape3D.new()
-	storage_box.size = Vector3(4.0, 1.6, 3.5)
-	storage_shape.shape = storage_box
-	storage_collision.add_child(storage_shape)
-	y.add_child(storage_collision)
-
-	# One battered timber divider gives the storage corner a clear edge.
-	var divider_scene := load("res://assets/props/wooden_wall.glb") as PackedScene
-	if divider_scene:
-		var divider := divider_scene.instantiate() as Node3D
-		divider.name = "StorageTimberDivider"
-		# The imported panel origin is offset from its mesh center; compensate
-		# for that after the 90-degree turn so its collider matches the wood.
-		divider.position = Vector3(14.648, 0.82, -42.893)
-		divider.rotation.y = PI * 0.5
-		y.add_child(divider)
-		var divider_body := StaticBody3D.new()
-		divider_body.position = Vector3(15.5, 0.89, -43.0)
-		divider_body.rotation.y = PI * 0.5
-		var divider_shape := CollisionShape3D.new()
-		var divider_box := BoxShape3D.new()
-		divider_box.size = Vector3(2.9, 1.78, 0.14)
-		divider_shape.shape = divider_box
-		divider_body.add_child(divider_shape)
-		y.add_child(divider_body)
+	# Split the supplied workshop bundle into barrels, crates, tires and timber.
+	# These separate groups are placed at the service corner, beside the tents,
+	# and near the parking edge instead of preserving the original asset pile.
+	var supply_pack_scene := load("res://assets/props/assets_pack_free_survivalpostapo.glb") as PackedScene
+	if supply_pack_scene:
+		var supply_source := supply_pack_scene.instantiate() as Node3D
+		supply_source.name = "SupplySourceContainer"
+		y.add_child(supply_source)
+		# Individual objects now form a small maintenance/supply point, with each
+		# item placed on the terrain and the center of the road left unobstructed.
+		place_supply_part(y, supply_source, "Cylinder", "SupplyBarrel_01", Vector3(12.0, 0.0, -42.0), 1.0, 0.0, PI * 0.5)
+		place_supply_part(y, supply_source, "Cylinder_001", "SupplyBarrel_02", Vector3(13.1, 0.0, -42.0), 1.0, 0.0, PI * 0.5)
+		place_supply_part(y, supply_source, "Cylinder_002", "SupplyBarrel_03", Vector3(12.0, 0.0, -43.1), 1.0, 0.0, PI * 0.5)
+		place_supply_part(y, supply_source, "Cylinder_003", "SupplyBarrel_04", Vector3(13.1, 0.0, -43.1), 1.0, 0.0, PI * 0.5)
+		place_supply_part(y, supply_source, "Cube_057", "SupplyCrate_Small", Vector3(22.0, 0.0, -41.5), 1.0, 0.0)
+		place_supply_part(y, supply_source, "Cube_075", "SupplyCrate_Tall", Vector3(25.0, 0.0, -44.5), 1.0, 0.15)
+		place_supply_part(y, supply_source, "Cube_081", "SupplyCrate_Wide", Vector3(21.5, 0.0, -48.0), 1.0, -0.1)
+		place_supply_part(y, supply_source, "Cube_100", "SupplyCrate_StackBase", Vector3(25.0, 0.0, -50.0), 0.72, 0.12)
+		place_supply_part(y, supply_source, "Cube_109", "SupplyCrate_StackTop", Vector3(25.0, 0.62, -50.0), 0.55, -0.08)
+		place_supply_part(y, supply_source, "opon", "SpareWheel_01", Vector3(11.1, 0.0, -45.0), 0.9, 0.0)
+		place_supply_part(y, supply_source, "opon_003", "SpareWheel_02", Vector3(12.1, 0.0, -45.0), 0.8, 0.4)
+		place_supply_part(y, supply_source, "palisada_002", "StoredTimber", Vector3(9.0, 0.0, -46.0), 0.6, 0.0)
+		var pending_supply: Array[Node] = [supply_source]
+		while not pending_supply.is_empty():
+			var current: Node = pending_supply.pop_back()
+			for part in current.get_children():
+				if part is Node3D:
+					(part as Node3D).visible = false
+				pending_supply.append(part)
 
 func build_armory():
 	var a := Node3D.new()
 	a.name = "Armory"
+	# The supplied map rises almost 0.4 m under the armory. Lift its interior
+	# floor above the highest measured point so the terrain cannot cut through it.
+	a.position.y = 0.42
 	add_child(a)
 
 	# The supplied ruined shop/house replaces the old box shell.  Its catalog
@@ -523,10 +665,18 @@ func build_armory():
 		var house := house_scene.instantiate() as Node3D
 		house.name = "BuryatHouseVisual"
 		house.scale = Vector3.ONE * 0.4
-		house.position = Vector3(0.0, 0.0, -13.8)
+	# Keep the exterior shell seated at its existing world height while the
+	# interior furniture and floor are leveled above the sloping terrain.
+		house.position = Vector3(0.0, -0.42, -13.8)
 		var house_ground := house.find_child("Plane", true, false) as Node3D
 		if house_ground:
 			house_ground.visible = false
+		# The source shop's combined wood-furniture mesh cuts across the new
+		# display and hides the NPC. The shell remains, while the issue counter
+		# and display are rebuilt as separate, deliberate pieces below.
+		var old_wood_furniture := house.find_child("Woods_Wood_0", true, false) as MeshInstance3D
+		if old_wood_furniture:
+			old_wood_furniture.visible = false
 		a.add_child(house)
 
 	# Simple collision follows the new model's 8 x 5.6 m wall footprint and
@@ -536,9 +686,15 @@ func build_armory():
 	add_box_collider(a, Vector3(0.0, 1.85, -16.6), Vector3(8.0, 3.7, 0.2))
 	add_box_collider(a, Vector3(-4.0, 1.85, -13.8), Vector3(0.2, 3.7, 5.6))
 	add_box_collider(a, Vector3(4.0, 1.85, -13.8), Vector3(0.2, 3.7, 5.6))
+	# The supplied shell has no usable floor; close its base with a simple timber
+	# floor so the terrain does not show through the armory interior.
+	mesh_box(a, Vector3(0.0, -0.04, -13.8), Vector3(8.0, 0.12, 5.6), Color("#51402d"), true)
+	# A low step bridges the leveled floor to the ground immediately outside the
+	# doorway without narrowing the 1.8 m passage.
+	mesh_box(a, Vector3(0.9, -0.18, -10.8), Vector3(1.8, 0.28, 0.7), Color("#51402d"), true)
 
 	# The entrance is on the +Z face that the player reaches from the yard.
-	var armory_door := create_door(a, "ArmoryDoor", Vector3(0.9, 1.1, -10.88), 1.8, Color("#49382b"), false, "Открыть оружейную", "yard", 2.2)
+	var armory_door := create_door(a, "ArmoryDoor", Vector3(0.9, 1.2, -10.91), 1.8, Color("#49382b"), false, "Открыть оружейную", "yard", 2.4)
 	armory_door.action_text = "Открыть оружейную"
 
 	# Keep the existing local armory photograph and hang it on the inside of the
@@ -546,9 +702,11 @@ func build_armory():
 	var arsenal_panel := MeshInstance3D.new()
 	arsenal_panel.name = "ArsenalInteriorBackdrop"
 	var arsenal_mesh := QuadMesh.new()
-	arsenal_mesh.size = Vector2(7.2, 2.5)
+	# Preserve the local photograph's 3:2 aspect ratio so the rifles are not
+	# stretched across the whole back wall.
+	arsenal_mesh.size = Vector2(4.2, 2.8)
 	arsenal_panel.mesh = arsenal_mesh
-	arsenal_panel.position = Vector3(0, 1.75, -16.48)
+	arsenal_panel.position = Vector3(0, 1.43, -15.92)
 	var arsenal_mat := StandardMaterial3D.new()
 	arsenal_mat.albedo_texture = load("res://assets/armory_wall.jpg") as Texture2D
 	arsenal_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -573,12 +731,20 @@ func build_armory():
 	armory_light.omni_range = 7.5
 	armory_lamp.add_child(armory_light)
 
-	# Weapon counter remains between the entrance and Buryat's place.
-	mesh_box(a, Vector3(0, 1.0, -15.0), Vector3(4.2, 0.7, 0.9), Color("#4b3828"), true)
+	# A compact issue counter stays beside the clear entrance aisle. Its legs and
+	# top are separate so it reads as furniture rather than a waist-high block.
+	mesh_box(a, Vector3(2.75, 0.96, -14.0), Vector3(1.25, 0.14, 0.72), Color("#4b3828"), true)
+	for leg_x in [2.25, 3.25]:
+		for leg_z in [-14.27, -13.73]:
+			mesh_box(a, Vector3(leg_x, 0.46, leg_z), Vector3(0.12, 0.92, 0.12), Color("#3f3025"), true)
+	mesh_box(a, Vector3(-0.15, 1.22, -16.30), Vector3(3.4, 0.08, 0.24), Color("#75563a"), false)
+	mesh_box(a, Vector3(-0.15, 1.58, -16.30), Vector3(3.4, 0.08, 0.24), Color("#75563a"), false)
 
 	var buryat := StaticBody3D.new()
 	buryat.name = "Buryat"
-	buryat.position = Vector3(0, 0.95, -13.4)
+	# Keep him on the left side of the entrance aisle, in front of the shop's
+	# built-in counter so his body is visible while the doorway stays clear.
+	buryat.position = Vector3(-2.2, 0.95, -12.8)
 	buryat.set_script(load("res://scripts/Buryat.gd"))
 	add_child(buryat)
 	var soldier_scene := load("res://assets/props/ussr_infantry_-_call_of_duty_world_at_war.glb") as PackedScene
@@ -586,15 +752,15 @@ func build_armory():
 		var buryat_visual := soldier_scene.instantiate() as Node3D
 		buryat_visual.name = "BuryatSoldierVisual"
 		buryat_visual.scale = Vector3.ONE * 0.01
-		buryat_visual.rotation.y = PI
+		# Face the yard entrance so Buryat naturally addresses the approaching player.
+		buryat_visual.rotation.y = 0.0
 		buryat_visual.position.y = -0.95
 		var model_root := buryat_visual.find_child("RootNode", true, false) as Node3D
 		if model_root:
 			var selected_parts := [
 				"char_rus_guard_body1_2_LOD0_001",
 				"char_rus_guard_head1_4_LOD0",
-				"char_rus_guard_body1_gear1_1_LOD0",
-                "char_rus_guard_ushankadown1_LOD0"
+				"char_rus_guard_helm1_LOD0"
 			]
 			for part in model_root.get_children():
 				if part is Node3D:
@@ -610,7 +776,7 @@ func build_armory():
 	# PPSh is displayed on the issue counter, not thrown on the ground.
 	var gun := StaticBody3D.new()
 	gun.name = "PPShPickup"
-	gun.position = Vector3(0.9, 1.55, -15.0)
+	gun.position = Vector3(2.75, 1.30, -14.0)
 	gun.set_script(load("res://scripts/PPShPickup.gd"))
 	add_child(gun)
 	var gun_visual := load("res://scenes/PPSH.tscn").instantiate() as Node3D
@@ -628,13 +794,15 @@ func build_range():
 	var r := Node3D.new()
 	r.name = "Range"
 	add_child(r)
-	mesh_box(r, Vector3(0, -0.01, -70), Vector3(26, 0.05, 20), Color("#6f765a"), false)
 
 	# Targets are deliberately much farther from the firing line.
+	var target_ground_heights: Array[float] = [-0.193, -0.385, -0.582, -0.514, -0.600]
 	for i in range(5):
 		var target := StaticBody3D.new()
 		target.name = "Target%d" % (i + 1)
-		target.position = Vector3(-8 + i * 4.0, 1.2, -78)
+		var target_x := -8.0 + i * 4.0
+		var target_ground := target_ground_heights[i]
+		target.position = Vector3(target_x, target_ground + 1.0, -78.0)
 		target.set_script(load("res://scripts/Target.gd"))
 		r.add_child(target)
 		var tm := MeshInstance3D.new()
@@ -643,15 +811,40 @@ func build_range():
 		tm.mesh = tmesh
 		tm.material_override = mat(Color("#d0c9aa"))
 		target.add_child(tm)
+		# Simple concentric rings make each local board read as a range target.
+		for ring_data in [
+			[0.38, Color("#302d29"), 0.075],
+			[0.27, Color("#e3d7bd"), 0.098],
+			[0.16, Color("#8f3029"), 0.121],
+			[0.055, Color("#e3d7bd"), 0.144]
+		]:
+			var ring_radius: float = float(ring_data[0])
+			var ring_color: Color = ring_data[1]
+			var ring_depth: float = float(ring_data[2])
+			var ring: MeshInstance3D = mesh_cylinder(target, Vector3(0.0, 0.0, ring_depth), ring_radius, 0.025, ring_color) as MeshInstance3D
+			ring.rotation.x = PI * 0.5
 		var cs := CollisionShape3D.new()
 		var sh := BoxShape3D.new()
 		sh.size = Vector3(1.0, 2.0, 0.2)
 		cs.shape = sh
 		target.add_child(cs)
-		mesh_box(r, Vector3(-8 + i * 4.0, 0.7, -77.6), Vector3(0.12, 1.4, 0.12), Color("#5b4834"), false)
+		# Put the wooden support behind the board so it does not stripe the target face.
+		mesh_box(r, Vector3(target_x, target_ground + 0.7, -78.18), Vector3(0.12, 1.4, 0.12), Color("#5b4834"), false)
 
-	# Firing line / small shelter so the player has a clear place to stand.
-	mesh_box(r, Vector3(0, 1.2, -52), Vector3(18, 2.4, 0.6), Color("#594734"), true)
+	# The old cross-range wall blocked both the entrance to the lane and the
+	# shots to the targets. Reuse the timber wall as two short, grounded side
+	# walls around the firing position; the target line stays open.
+	var firing_wall_scene := load("res://assets/props/wooden_wall.glb") as PackedScene
+	if firing_wall_scene:
+		var side_positions := [
+			[Vector3(-10.0, 0.375, -50.0), Vector3(-10.0, 0.39, -53.0)],
+			[Vector3(10.0, 0.29, -50.0), Vector3(10.0, 0.16, -53.0)]
+		]
+		for side_index in range(side_positions.size()):
+			var wall_points: Array = side_positions[side_index]
+			for segment_index in range(wall_points.size()):
+				var wall_point: Vector3 = wall_points[segment_index]
+				add_model_wall(r, firing_wall_scene, "FiringSideWall_%d_%d" % [side_index, segment_index], wall_point + Vector3(0, 1.2, 0), Vector3(3.02, 2.4, 0.12), PI * 0.5)
 
 func add_tree(parent: Node3D, tree_scene: PackedScene, tree_position: Vector3, tree_scale: float, tree_name: String):
 	var tree := tree_scene.instantiate() as Node3D
@@ -678,6 +871,20 @@ func build_truck(pos: Vector3):
 	t.position = pos
 	t.set_script(load("res://scripts/Truck.gd"))
 	add_child(t)
+	# Seat the existing ZiS at the average of the four wheel contact points and
+	# pitch its chassis to the local terrain grade without changing its route.
+	var wheelbase_half := 2.1
+	var track_half := 0.9
+	var rear_height := (
+		terrain_height_at(Vector3(pos.x - wheelbase_half, pos.y, pos.z - track_half)) +
+		terrain_height_at(Vector3(pos.x - wheelbase_half, pos.y, pos.z + track_half))
+	) * 0.5
+	var front_height := (
+		terrain_height_at(Vector3(pos.x + wheelbase_half, pos.y, pos.z - track_half)) +
+		terrain_height_at(Vector3(pos.x + wheelbase_half, pos.y, pos.z + track_half))
+	) * 0.5
+	t.position.y = (rear_height + front_height) * 0.5 + 0.004
+	t.rotation.z = atan2(front_height - rear_height, wheelbase_half * 2.0)
 	var truck_model := load("res://assets/vehicles/zis-5b.glb") as PackedScene
 	var truck_visual := truck_model.instantiate() as Node3D
 	truck_visual.name = "ZIS5Visual"
@@ -687,8 +894,9 @@ func build_truck(pos: Vector3):
 	truck_visual.rotation_degrees.y = 90.0
 	t.add_child(truck_visual)
 	var cs := CollisionShape3D.new()
+	cs.position.y = 1.03
 	var sh := BoxShape3D.new()
-	sh.size = Vector3(3, 2.5, 6.0)
+	sh.size = Vector3(2.23, 2.07, 5.8)
 	cs.shape = sh
 	t.add_child(cs)
 
@@ -702,32 +910,78 @@ func build_forest():
 		# terrain already carries the distant woodland, so avoid the old repeated
 		# rows that made the usable clearing look like an asset catalogue.
 		var pine_positions := [
-			Vector3(-36.0, 0.330, 18.0),
-			Vector3(37.0, 0.216, 3.0),
-			Vector3(-37.0, -0.272, -28.0),
-			Vector3(36.0, -0.065, -49.0),
-			Vector3(-36.0, -0.362, -83.0),
-			Vector3(37.0, -0.471, -96.0)
+			Vector3(-29.0, 0.0, 18.0), Vector3(29.0, 0.0, 3.0),
+			Vector3(-29.0, 0.0, -28.0), Vector3(26.0, 0.0, -56.0),
+			Vector3(-21.0, 0.0, -83.0), Vector3(21.0, 0.0, -96.0),
+			Vector3(-28.0, 0.0, 29.0), Vector3(28.0, 0.0, -14.0),
+			Vector3(-25.0, 0.0, -42.0), Vector3(23.0, 0.0, -64.0),
+			Vector3(-19.0, 0.0, -101.0), Vector3(-17.0, 0.0, -109.0),
+			Vector3(-25.0, 0.0, 10.0), Vector3(24.0, 0.0, -8.0),
+			Vector3(-24.0, 0.0, -17.0), Vector3(22.0, 0.0, -39.0),
+			Vector3(-23.0, 0.0, -53.0), Vector3(19.0, 0.0, -74.0)
 		]
 		for index in range(pine_positions.size()):
-			add_tree(f, pine_scene, pine_positions[index], 0.009 + float(index % 3) * 0.0005, "Pine_Edge_%02d" % index)
+			var pine_position: Vector3 = pine_positions[index]
+			pine_position.y = terrain_height_at(pine_position)
+			add_tree(f, pine_scene, pine_position, 0.009 + float(index % 3) * 0.0005, "Pine_Edge_%02d" % index)
 
-	# Small clumps from the newly supplied grass pack soften three unused
-	# perimeter pockets. They stay off the door approaches, service road, and
-	# firing lane; each base is seated to the local map surface.
+	# Low grass tufts soften unused patches beside the boundary and tree groups.
+	# The road, door approaches, central aisle, and firing lane stay open.
 	var grass_scene := load("res://assets/props/grass.glb") as PackedScene
 	if grass_scene:
 		var grass_patches := [
-			[Vector3(-35.0, 0.06, -90.0), 0.35],
-			[Vector3(30.0, 0.16, -60.0), 2.05],
-			[Vector3(30.0, -0.16, -30.0), 4.15]
+			[Vector3(-17.0, 0.06, -90.0), 0.35, 0.55],
+			[Vector3(21.0, 0.16, -60.0), 2.05, 0.55],
+			[Vector3(21.0, -0.16, -30.0), 4.15, 0.55],
+			[Vector3(-29.0, 0.314, 21.0), 1.05, 0.48],
+			[Vector3(29.0, 0.268, 7.0), 2.75, 0.64],
+			[Vector3(-20.0, 0.623, -24.0), 3.8, 0.52],
+			[Vector3(25.0, -0.409, -46.0), 0.8, 0.62],
+			[Vector3(-20.0, -0.351, -80.0), 5.1, 0.58],
+			[Vector3(18.0, -0.668, -93.0), 1.55, 0.52],
+			[Vector3(-28.0, 0.227, -8.0), 2.4, 0.5],
+			[Vector3(27.0, 0.383, -16.0), 4.65, 0.56],
+			[Vector3(-20.0, -0.389, -58.0), 3.15, 0.6],
+			[Vector3(18.0, -0.528, -72.0), 1.2, 0.5],
+			[Vector3(-19.0, -0.418, -95.0), 0.45, 0.55],
+			[Vector3(-29.0, 0.287, 14.0), 2.3, 0.56],
+			[Vector3(29.0, 0.053, 8.0), 4.7, 0.5],
+			[Vector3(-28.0, 0.245, -18.0), 1.55, 0.6],
+			[Vector3(28.0, 0.376, -24.0), 5.0, 0.58],
+			[Vector3(24.0, -0.463, -42.0), 3.7, 0.54],
+			[Vector3(-19.0, -0.126, -58.0), 0.25, 0.62],
+			[Vector3(20.0, 0.478, -64.0), 2.8, 0.52],
+			[Vector3(-18.0, -0.011, -76.0), 4.25, 0.58],
+			[Vector3(19.0, -0.660, -85.0), 0.6, 0.55],
+			[Vector3(-16.0, -0.657, -97.0), 3.2, 0.6],
+			[Vector3(17.0, -0.525, -104.0), 1.25, 0.55],
+			[Vector3(-17.0, 0.0, 12.0), 0.7, 0.55],
+			[Vector3(-14.0, 0.0, 7.0), 2.2, 0.52],
+			[Vector3(-19.0, 0.0, 2.0), 4.1, 0.62],
+			[Vector3(16.0, 0.0, 10.0), 1.8, 0.5],
+			[Vector3(21.0, 0.0, 3.0), 3.35, 0.58],
+			[Vector3(12.0, 0.0, -2.0), 5.1, 0.52],
+			[Vector3(-15.0, 0.0, -9.0), 3.9, 0.58],
+			[Vector3(-20.0, 0.0, -14.0), 1.15, 0.54],
+			[Vector3(22.0, 0.0, -11.0), 2.4, 0.6],
+			[Vector3(18.0, 0.0, -20.0), 0.35, 0.5],
+			[Vector3(-15.0, 0.0, -29.0), 4.8, 0.58],
+			[Vector3(-20.0, 0.0, -34.0), 2.65, 0.53],
+			[Vector3(19.0, 0.0, -29.0), 1.0, 0.57],
+			[Vector3(14.0, 0.0, -36.0), 3.7, 0.55],
+			[Vector3(-17.0, 0.0, -48.0), 0.2, 0.54],
+			[Vector3(21.0, 0.0, -54.0), 4.6, 0.6],
+			[Vector3(-18.0, 0.0, -70.0), 2.15, 0.57],
+			[Vector3(17.0, 0.0, -76.0), 5.4, 0.52]
 		]
 		for index in range(grass_patches.size()):
 			var patch_data: Array = grass_patches[index]
 			var patch := grass_scene.instantiate() as Node3D
 			patch.name = "GrassPatch_%02d" % (index + 1)
-			patch.scale = Vector3.ONE * 0.55
-			patch.position = patch_data[0]
+			patch.scale = Vector3.ONE * float(patch_data[2])
+			var patch_position: Vector3 = patch_data[0]
+			patch_position.y = terrain_height_at(patch_position)
+			patch.position = patch_position
 			patch.rotation.y = float(patch_data[1])
 			f.add_child(patch)
 
@@ -737,14 +991,16 @@ func build_forest():
 		# Keep the two edge trees that fit the clearing and seat their bases on
 		# the terrain surface sampled during layout review. The northern spot is
 		# a steep mound, so leave it as natural terrain rather than burying a tree.
-		for data in [Vector3(29, -0.563, -82), Vector3(-29, 0.265, -88)]:
+		for data in [Vector3(20, 0.0, -82), Vector3(-20, 0.0, -88)]:
 			var oak := oak_scene.instantiate() as Node3D
 			oak.name = "OakTree"
 			oak.scale = Vector3.ONE * 2.0
-			oak.position = data
+			var oak_position: Vector3 = data
+			oak_position.y = terrain_height_at(oak_position)
+			oak.position = oak_position
 			f.add_child(oak)
 			var oak_body := StaticBody3D.new()
-			oak_body.position = data + Vector3(0, 1.1, 0)
+			oak_body.position = oak_position + Vector3(0, 1.1, 0)
 			var oak_shape := CollisionShape3D.new()
 			var oak_cylinder := CylinderShape3D.new()
 			oak_cylinder.radius = 0.32
@@ -753,8 +1009,8 @@ func build_forest():
 			oak_body.add_child(oak_shape)
 			f.add_child(oak_body)
 
-	# Use a few mossy/plain rock variants as low forest-edge decoration with
-	# simplified colliders; keep them away from the central route.
+	# Reuse the supplied plain and mossy stones in several irregular boundary
+	# groups; the road, central aisle, and firing lane remain open.
 	var rock_pack := load("res://assets/props/stylised_rocks_asset_pack.glb").instantiate() as Node3D
 	f.add_child(rock_pack)
 	var rock_root := rock_pack.find_child("RootNode", true, false)
@@ -763,14 +1019,27 @@ func build_forest():
 			var rock_mesh := source_mesh as MeshInstance3D
 			rock_mesh.visible = false
 		var rock_sets := [
-			["Plain_Rock1", ["Plain_Rock3", "Plain_Rock12", "Plain_Rock23"], Vector3(32.5, -0.058, -28.0), 0.9],
-			["Mossy_Rock1", ["Mossy_Rock8", "Mossy_Rock17", "Mossy_Rock29"], Vector3(-32.5, -0.241, -62.0), 0.9]
+			["Plain_Rock1", ["Plain_Rock3", "Plain_Rock12", "Plain_Rock23"], Vector3(28.0, 0.0, -28.0), 0.9],
+			["Mossy_Rock1", ["Mossy_Rock8", "Mossy_Rock17", "Mossy_Rock29"], Vector3(-19.0, 0.0, -62.0), 0.9],
+			["Plain_Rock1", ["Plain_Rock2", "Plain_Rock9", "Plain_Rock18"], Vector3(28.0, 0.0, -13.0), 0.72],
+			["Mossy_Rock1", ["Mossy_Rock4", "Mossy_Rock15", "Mossy_Rock25"], Vector3(-28.0, 0.0, -24.0), 0.78],
+			["Plain_Rock1", ["Plain_Rock5", "Plain_Rock14", "Plain_Rock21"], Vector3(19.0, 0.0, -99.0), 0.82]
 		]
-		for rock_set in rock_sets:
-			var group := rock_root.get_node_or_null(rock_set[0]) as Node3D
-			if group == null:
+		for set_index in range(rock_sets.size()):
+			var rock_set: Array = rock_sets[set_index]
+			var source_group := rock_root.get_node_or_null(rock_set[0]) as Node3D
+			if source_group == null:
 				continue
-			group.position = group.get_parent().global_transform.affine_inverse() * rock_set[2]
+			var group: Node3D
+			if set_index == 0:
+				group = source_group
+			else:
+				group = source_group.duplicate() as Node3D
+				group.name = "RockCluster_%02d" % set_index
+				rock_root.add_child(group)
+			var rock_center: Vector3 = rock_set[2]
+			rock_center.y = terrain_height_at(rock_center)
+			group.position = group.get_parent().global_transform.affine_inverse() * rock_center
 			group.scale = Vector3.ONE * float(rock_set[3])
 			for index in range(rock_set[1].size()):
 				var variant := group.get_node_or_null(rock_set[1][index]) as Node3D
@@ -778,7 +1047,7 @@ func build_forest():
 					continue
 				# GLB variants are spaced on a 100 cm catalog grid; regroup three
 				# different stones as a small cluster and reveal only their meshes.
-				variant.position = Vector3((index % 2) * 120.0, 0, (index / 2) * 120.0)
+				variant.position = [Vector3.ZERO, Vector3(120, 0, 0), Vector3(60, 0, 120)][index]
 				var selected_meshes := variant.find_children("*", "MeshInstance3D", true, false)
 				if not selected_meshes.is_empty():
 					(selected_meshes[0] as MeshInstance3D).visible = true
