@@ -427,7 +427,7 @@ func _build_battlefield() -> void:
 			var wreck_scene: PackedScene = tank_wreck_scenes[wreck_index]
 			if wreck_scene:
 				var wreck_scale: float = [0.68, 0.75, 0.68, 0.70, 0.71, 0.72][wreck_index]
-				_spawn_model(wreck_scene, set_position, Vector3.ONE * wreck_scale, yaw + 0.8 + float(wreck_index) * 0.32, "AbandonedTankWreck")
+				_spawn_model(wreck_scene, set_position, Vector3.ONE * wreck_scale, yaw + 0.8 + float(wreck_index) * 0.32, "AbandonedTankWreck_%02d" % wreck_index)
 		elif i % 4 == 1 and barrier_scene:
 			_spawn_model(barrier_scene, set_position, Vector3.ONE * 0.68, yaw, "TankObstaclePosition")
 		elif crates_scene and i % 7 == 0:
@@ -453,11 +453,12 @@ func _build_battlefield() -> void:
 func _scatter_battlefield_forest(pine_scene: PackedScene) -> void:
 	if pine_scene == null:
 		return
+	var forest_piece_index := 0
 	var landmark_distances: Array[float] = []
 	for landmark_index in [2, 6, 10, 18, 21, 25, 30, 33, 39, 44, 49]:
 		landmark_distances.append(route_length * (float(landmark_index) + 0.38) / 52.0)
 	var mill_distance := route_length * 0.71
-	var stations := 125
+	var stations := 165
 	for i in range(stations):
 		var distance := route_length * (float(i) + 0.5) / float(stations)
 		var point := _route_at(distance)
@@ -465,7 +466,7 @@ func _scatter_battlefield_forest(pine_scene: PackedScene) -> void:
 		var side := Vector3(-tangent.z, 0.0, tangent.x).normalized()
 		for side_sign in [-1.0, 1.0]:
 			var variation: int = posmod(i * 17 + int(side_sign * 5.0), 9)
-			var offset := 14.0 + float(variation) * 0.5
+			var offset := 10.5 + float(variation) * 0.58
 			var clear_for_landmark := false
 			if side_sign > 0.0 and _route_distance_gap(distance, mill_distance) < 24.0:
 				clear_for_landmark = true
@@ -478,20 +479,23 @@ func _scatter_battlefield_forest(pine_scene: PackedScene) -> void:
 				offset = 34.0 + float(variation % 5) * 1.8
 			var position: Vector3 = point + side * side_sign * offset
 			var tree_scale := 0.016 + float(posmod(i * 7 + variation, 5)) * 0.0013
-			if _route_clearance(position) >= 12.5:
-				_spawn_model(pine_scene, position, Vector3.ONE * tree_scale, float(posmod(i * 47 + variation * 23, 360)) * PI / 180.0, "PineForest")
+			if _route_clearance(position) >= 8.5:
+				_spawn_model(pine_scene, position, Vector3.ONE * (tree_scale + 0.0015), float(posmod(i * 47 + variation * 23, 360)) * PI / 180.0, "PineForest_%03d" % forest_piece_index)
+				forest_piece_index += 1
 			if not clear_for_landmark and i % 3 == 0:
 				var cluster_shift := float((i % 3) - 1) * 4.2
 				var undergrowth_position: Vector3 = point + tangent * cluster_shift + side * side_sign * (offset + 3.8)
 				var undergrowth_scale := 0.0105 + float((i + variation) % 4) * 0.0012
-				if _route_clearance(undergrowth_position) >= 11.5:
-					_spawn_model(pine_scene, undergrowth_position, Vector3.ONE * undergrowth_scale, float(posmod(i * 29 + variation * 31, 360)) * PI / 180.0, "PineUnderstory")
+				if _route_clearance(undergrowth_position) >= 8.0:
+					_spawn_model(pine_scene, undergrowth_position, Vector3.ONE * undergrowth_scale, float(posmod(i * 29 + variation * 31, 360)) * PI / 180.0, "PineUnderstory_%03d" % forest_piece_index)
+					forest_piece_index += 1
 			if not clear_for_landmark and i % 4 == 2:
 				var outer_shift := float((i % 4) - 1) * 5.0
 				var outer_position: Vector3 = point + tangent * outer_shift + side * side_sign * (31.0 + float(variation % 4) * 2.2)
 				var outer_scale := 0.014 + float((i + variation) % 4) * 0.0015
-				if _route_clearance(outer_position) >= 11.5:
-					_spawn_model(pine_scene, outer_position, Vector3.ONE * outer_scale, float(posmod(i * 61 + variation * 11, 360)) * PI / 180.0, "PineOuterForest")
+				if _route_clearance(outer_position) >= 8.0:
+					_spawn_model(pine_scene, outer_position, Vector3.ONE * outer_scale, float(posmod(i * 61 + variation * 11, 360)) * PI / 180.0, "PineOuterForest_%03d" % forest_piece_index)
+					forest_piece_index += 1
 
 func _find_route_clear_position(route_point: Vector3, outward: Vector3, tangent: Vector3, initial_offset: float, required_clearance: float) -> Vector3:
 	var along_shifts: Array[float] = [0.0, 8.0, -8.0, 16.0, -16.0]
