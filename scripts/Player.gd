@@ -129,6 +129,24 @@ func _physics_process(delta):
     recoil_offset = move_toward(recoil_offset, 0.0, delta * 0.09)
     sword_attack_remaining = maxf(0.0, sword_attack_remaining - delta)
 
+    var active_game := get_tree().get_first_node_in_group("game")
+    if active_game != null and active_game.state == "chase":
+        aim = weapon_visible and can_shoot and current_weapon_definition != null and current_weapon_definition.weapon_id == &"ppsh" and not reloading and Input.is_action_pressed("aim")
+        update_weapon_pose(delta, false)
+        camera.fov = move_toward(camera.fov, 62.0 if aim else 75.0, delta * 45.0)
+        if muzzle_timer > 0.0:
+            muzzle_timer -= delta
+            if muzzle_flash:
+                muzzle_flash.visible = muzzle_timer > 0.0
+            if muzzle_light:
+                muzzle_light.light_energy = 2.0 if muzzle_timer > 0.0 else 0.0
+        if weapon_visible and can_shoot and current_weapon_definition != null and current_weapon_definition.weapon_id == &"ppsh" and not reloading and Input.is_action_pressed("shoot"):
+            shoot()
+        if Input.is_action_just_pressed("reload") and weapon_visible and can_shoot and current_weapon_definition != null and current_weapon_definition.weapon_id == &"ppsh":
+            reload_weapon()
+        head.rotation.x = pitch + recoil_offset
+        return
+
     var crouch_requested := Input.is_action_pressed("crouch")
     if crouch_requested and not is_crouched:
         set_crouched(true)
@@ -325,7 +343,7 @@ func shoot():
     if not can_shoot or not weapon_visible or reloading or ammo <= 0 or fire_cooldown > 0.0 or current_weapon_definition == null or current_weapon_definition.weapon_id != &"ppsh":
         return
     var game = get_tree().get_first_node_in_group("game")
-    if game == null or game.state != "range":
+    if game == null or (game.state != "range" and game.state != "chase"):
         return
 
     fire_cooldown = 1.0 / maxf(current_weapon_definition.rounds_per_second, 0.1)
@@ -345,6 +363,10 @@ func shoot():
     direction = direction.normalized()
     var ray := PhysicsRayQueryParameters3D.create(camera.global_position, camera.global_position + direction * 120.0)
     ray.exclude = [get_rid()]
+    ray.collision_mask = 1
+    if game.state == "chase":
+        ray.collision_mask |= 4 # Separate Chapter 2 hull/track areas.
+    ray.collide_with_areas = true
     var hit := get_world_3d().direct_space_state.intersect_ray(ray)
     if hit and hit.collider.has_method("hit_target"):
         hit.collider.hit_target()

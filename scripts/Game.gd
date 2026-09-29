@@ -29,6 +29,9 @@ var shout_player: AudioStreamPlayer
 var menu_music_player: AudioStreamPlayer
 var fork_task_voice_player: AudioStreamPlayer
 var fork_clean_player: AudioStreamPlayer
+var chapter2_controller: Node
+
+const CHAPTER2_SCRIPT: Script = preload("res://scripts/Chapter2.gd")
 
 const TEXT_OUTLINE_COLOR := Color(0.03, 0.03, 0.03, 0.95)
 const TEXT_OUTLINE_SIZE := 5
@@ -41,6 +44,28 @@ func _ready():
 	setup_audio()
 	player.process_mode = Node.PROCESS_MODE_DISABLED
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--chapter2-test="):
+			call_deferred("_start_chapter2_test", argument.trim_prefix("--chapter2-test="))
+			break
+
+func _start_chapter2_test(scenario: String) -> void:
+	menu_open = false
+	if menu:
+		menu.visible = false
+	start_chapter2(true, scenario)
+
+func start_chapter2(skip_cutscene: bool = false, test_scenario: String = "") -> void:
+	if menu_music_player and menu_music_player.playing:
+		menu_music_player.stop()
+	if menu:
+		menu.visible = false
+	menu_open = false
+	if chapter2_controller == null:
+		chapter2_controller = CHAPTER2_SCRIPT.new()
+		chapter2_controller.name = "Chapter2Controller"
+		add_child(chapter2_controller)
+	chapter2_controller.begin(self, test_scenario if skip_cutscene else "")
 
 func make_environment():
 	var env := Environment.new()
@@ -1297,6 +1322,8 @@ func update_state(s):
 		objective.text = "ПРОЛОГ  |  Стрельба окончена. Найти и сесть в грузовик"
 	elif s == "end":
 		objective.text = "ПРОЛОГ ЗАВЕРШЁН"
+	elif s == "chase":
+		objective.text = "ГЛАВА 2  |  Уходи от Pz III"
 
 func toilet_clean():
 	if state != "toilet":
@@ -1345,9 +1372,7 @@ func target_hit():
 		update_state("truck")
 
 func finish_prologue():
-	update_state("end")
-	message.text = "Дмитрий садится в ЗИС-5. Пролог закончен."
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	start_chapter2()
 
 func unlock_toilet_door():
 	if not door_unlocked and fork_task_voice_player:
@@ -1393,6 +1418,8 @@ func _process(delta):
 		ammo_label.text = "Оружие получено"
 	else:
 		ammo_label.text = "ППШ — не получен"
+	if state == "chase" or state.begins_with("chase_"):
+		return
 
 	if message_time > 0:
 		message_time -= delta
