@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/props/ww2_german_mp40.glb" id="1_mp40"]
+
+[node name="MP40Visual" type="Node3D"]
+scale = Vector3(0.85, 0.85, 0.85)
+
+[node name="MP40Model" parent="." instance=ExtResource("1_mp40")]

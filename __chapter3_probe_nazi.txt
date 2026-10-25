@@ -1,0 +1,62 @@
+=== ASSET res://assets/props/nazi_engineer_-_wolf._new_colossus.glb
+SUMMARY meshes=13 skeletons=1 animations=0 bounds=[P: (-20.36662, -58.71876, -0.106297), S: (59.42783, 117.4375, 194.8129)]
+SKELETON Skeleton3D bones=81: _rootJoint, origin_01, align_02, hips_03, spine_04, spine1_05, spine2_06, neck_07, neck1_08, head_09, hat_joint_010, eye_lt_011, eye_rt_012, teeth_offset_013, jaw_014, tonguea_015, tongueb_016, tonguec_017, leftshoulder_018, leftarm_019, leftforearm_020, leftforearmroll_021, lefthand_022, leftweapon_023, lefthandthumb1_024, lefthandthumb2_025, lefthandthumb3_026, leftpinkyin_027, lefthandpinky1_028, lefthandpinky2_029, lefthandpinky3_030, leftringin_031, lefthandring1_032, lefthandring2_033, lefthandring3_034, leftmiddlein_035, lefthandmiddle1_036, lefthandmiddle2_037, lefthandmiddle3_038, leftindexin_039, lefthandindex1_040, lefthandindex2_041, lefthandindex3_042, leftarmroll_043, rightshoulder_044, rightarm_045, rightforearm_00, rightforearmroll_046, righthand_047, rightindexin_048, righthandindex1_049, righthandindex2_050, righthandindex3_051, rightmiddlein_052, righthandmiddle1_053, righthandmiddle2_054, righthandmiddle3_055, rightringin_056, righthandring1_057, righthandring2_058, righthandring3_059, rightpinkyin_060, righthandpinky1_061, righthandpinky2_062, righthandpinky3_063, rightweapon_064, righthandthumb1_065, righthandthumb2_066, righthandthumb3_067, rightarmroll_068, flashlight_069, leftupleg_070, leftuplegroll_071, leftleg_072, leftfoot_073, lefttoebase_074, rightupleg_075, rightuplegroll_076, rightleg_077, rightfoot_078, righttoebase_079
+NODE Sketchfab_model <Node3D>
+NODE e8fa615b8c8440f7b15487377afb7818_fbx <Node3D>
+NODE RootNode <Node3D>
+NODE Joints <Node3D>
+NODE Object_4 <Node3D>
+NODE Skeleton3D <Skeleton3D>
+NODE Object_86 <Node3D>
+NODE Object_88 <Node3D>
+NODE Object_90 <Node3D>
+NODE Object_92 <Node3D>
+NODE Object_94 <Node3D>
+NODE Object_96 <Node3D>
+NODE Object_98 <Node3D>
+NODE Object_100 <Node3D>
+NODE Object_102 <Node3D>
+NODE Object_104 <Node3D>
+NODE Object_106 <Node3D>
+NODE Object_108 <Node3D>
+NODE Object_110 <Node3D>
+NODE Object_87 <MeshInstance3D>
+NODE Object_89 <MeshInstance3D>
+NODE Object_91 <MeshInstance3D>
+NODE Object_93 <MeshInstance3D>
+NODE Object_95 <MeshInstance3D>
+NODE Object_97 <MeshInstance3D>
+NODE Object_99 <MeshInstance3D>
+NODE Object_101 <MeshInstance3D>
+NODE Object_103 <MeshInstance3D>
+NODE Object_105 <MeshInstance3D>
+NODE Object_107 <MeshInstance3D>
+NODE Object_109 <MeshInstance3D>
+NODE Object_111 <MeshInstance3D>
+NODE StaticBody3D <StaticBody3D>
+NODE CollisionShape3D <CollisionShape3D>
+NODE StaticBody3D <StaticBody3D>
+NODE CollisionShape3D <CollisionShape3D>
+=== ASSET res://assets/props/scp-1123_nazi.glb
+SUMMARY meshes=2 skeletons=1 animations=1 bounds=[P: (-16.53688, -0.33691, -9.089827), S: (33.59557, 67.94416, 14.59964)]
+SKELETON Skeleton3D bones=98: _rootJoint, Scene_Root_01, Skeleton_02, Object01_03, Object01_end_065, Bip01_04, _no_name__05, _no_name__end_066, Bip01_Pelvis_06, _no_name_1_07, _no_name_1_end_067, Bip01_Spine_08, _no_name_2_09, _no_name_2_end_068, Bip01_Spine1_010, _no_name_3_011, _no_name_3_end_069, Bip01_Spine2_012, _no_name_4_013, _no_name_4_end_070, Bip01_Neck_014, _no_name_5_015, _no_name_5_end_071, Bip01_Head_016, _no_name_6_017, _no_name_6_end_072, Bip01_HeadNub_018, _no_name_7_019, _no_name_7_end_073, Bip01_L_Clavicle_020, _no_name_8_021, _no_name_8_end_074, Bip01_L_UpperArm_00, _no_name_9_022, _no_name_9_end_075, Bip01_L_Forearm_023, _no_name_10_024, _no_name_10_end_076, Bip01_L_Hand_025, _no_name_11_026, _no_name_11_end_077, Bip01_L_Finger0_027, _no_name_12_028, _no_name_12_end_078, Bip01_L_Finger0Nub_029, _no_name_13_030, _no_name_13_end_079, Bip01_R_Clavicle_031, _no_name_14_032, _no_name_14_end_080, Bip01_R_UpperArm_033, _no_name_15_034, _no_name_15_end_081, Bip01_R_Forearm_035, _no_name_16_036, _no_name_16_end_082, Bip01_R_Hand_037, _no_name_17_038, _no_name_17_end_083, Bip01_R_Finger0_039, _no_name_18_040, _no_name_18_end_084, Bip01_R_Finger0Nub_041, _no_name_19_042, _no_name_19_end_085, FIRESPOT_043, _no_name_20_044, _no_name_20_end_086, Bip01_L_Thigh_045, _no_name_21_046, _no_name_21_end_087, Bip01_L_Calf_047, _no_name_22_048, _no_name_22_end_088, Bip01_L_Foot_049, _no_name_23_050, _no_name_23_end_089, Bip01_L_Toe0_051, _no_name_24_052, _no_name_24_end_090, Bip01_L_Toe0Nub_053, _no_name_25_054, _no_name_25_end_091, Bip01_R_Thigh_055, _no_name_26_056, _no_name_26_end_092, Bip01_R_Calf_057, _no_name_27_058, _no_name_27_end_093, Bip01_R_Foot_059, _no_name_28_060, _no_name_28_end_094, Bip01_R_Toe0_061, _no_name_29_062, _no_name_29_end_095, Bip01_R_Toe0Nub_063, _no_name_30_064, _no_name_30_end_096
+ANIMATION AnimationPlayer:naziofficer_skeleton|naziofficerAnim
+NODE Sketchfab_model <Node3D>
+NODE AnimationPlayer <AnimationPlayer>
+NODE SCP-1123 Nazi_fbx <Node3D>
+NODE Object_2 <Node3D>
+NODE RootNode <Node3D>
+NODE Light <Node3D>
+NODE Camera <Node3D>
+NODE naziofficer <Node3D>
+NODE naziofficer_001 <Node3D>
+NODE naziofficer_skeleton <Node3D>
+NODE Object_12 <Node3D>
+NODE Skeleton3D <Skeleton3D>
+NODE Object_14 <Node3D>
+NODE Object_16 <Node3D>
+NODE Object_15 <MeshInstance3D>
+NODE Object_17 <MeshInstance3D>
+NODE Object_8 <Node3D>
+NODE Object_5 <Node3D>
+NODE Object_6 <Node3D>

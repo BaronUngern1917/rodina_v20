@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="WeaponDefinition" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/WeaponDefinition.gd" id="1_definition"]
+[ext_resource type="PackedScene" path="res://scenes/MP40.tscn" id="2_scene"]
+[ext_resource type="AudioStream" path="res://assets/audio/sound_of_machinegun.mp3" id="3_fire_sound"]
+
+[resource]
+script = ExtResource("1_definition")
+weapon_id = &"mp40"
+display_name = "MP40"
+equip_key_physical_code = 52
+visual_scene = ExtResource("2_scene")
+fire_sound = ExtResource("3_fire_sound")
+magazine_capacity = 32
+reserve_magazines = 0
+rounds_per_second = 8.5
+spread_degrees = 1.2
+reload_duration = 1.55
+hip_position = Vector3(0.19, -0.16, -0.35)
+ads_position = Vector3(-0.01, -0.105, -0.58)
+muzzle_position = Vector3(0.0, -0.02, -0.56)

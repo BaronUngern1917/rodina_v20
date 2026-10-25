@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="WeaponDefinition" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/WeaponDefinition.gd" id="1_definition"]
+[ext_resource type="PackedScene" path="res://scenes/PTRD.tscn" id="2_scene"]
+[ext_resource type="AudioStream" path="res://assets/audio/tank_shoot_far.mp3" id="3_fire_sound"]
+
+[resource]
+script = ExtResource("1_definition")
+weapon_id = &"ptrd"
+display_name = "ПТРД"
+equip_key_physical_code = 51
+visual_scene = ExtResource("2_scene")
+fire_sound = ExtResource("3_fire_sound")
+magazine_capacity = 1
+reserve_magazines = 2
+rounds_per_second = 0.7
+spread_degrees = 0.18
+reload_duration = 2.4
+hip_position = Vector3(0.2, -0.19, -0.36)
+ads_position = Vector3(0.0, -0.12, -0.72)
+muzzle_position = Vector3(0.0, -0.01, -1.0)

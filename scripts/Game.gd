@@ -30,8 +30,10 @@ var menu_music_player: AudioStreamPlayer
 var fork_task_voice_player: AudioStreamPlayer
 var fork_clean_player: AudioStreamPlayer
 var chapter2_controller: Node
+var chapter3_controller: Node
 
 const CHAPTER2_SCRIPT: Script = preload("res://scripts/Chapter2.gd")
+const CHAPTER3_SCRIPT: Script = preload("res://scripts/Chapter3.gd")
 
 const TEXT_OUTLINE_COLOR := Color(0.03, 0.03, 0.03, 0.95)
 const TEXT_OUTLINE_SIZE := 5
@@ -48,12 +50,21 @@ func _ready():
 		if argument.begins_with("--chapter2-test="):
 			call_deferred("_start_chapter2_test", argument.trim_prefix("--chapter2-test="))
 			break
+		if argument.begins_with("--chapter3-test="):
+			call_deferred("_start_chapter3_test", argument.trim_prefix("--chapter3-test="))
+			break
 
 func _start_chapter2_test(scenario: String) -> void:
 	menu_open = false
 	if menu:
 		menu.visible = false
 	start_chapter2(true, scenario)
+
+func _start_chapter3_test(scenario: String) -> void:
+	menu_open = false
+	if menu:
+		menu.visible = false
+	start_chapter3(scenario)
 
 func start_chapter2(skip_cutscene: bool = false, test_scenario: String = "") -> void:
 	if menu_music_player and menu_music_player.playing:
@@ -66,6 +77,29 @@ func start_chapter2(skip_cutscene: bool = false, test_scenario: String = "") -> 
 		chapter2_controller.name = "Chapter2Controller"
 		add_child(chapter2_controller)
 	chapter2_controller.begin(self, test_scenario if skip_cutscene else "")
+
+func start_chapter3(test_scenario: String = "") -> void:
+	if menu_music_player and menu_music_player.playing:
+		menu_music_player.stop()
+	if menu:
+		menu.visible = false
+	menu_open = false
+	if is_instance_valid(chapter3_controller):
+		chapter3_controller.free()
+	chapter3_controller = CHAPTER3_SCRIPT.new()
+	chapter3_controller.name = "Chapter3Controller"
+	add_child(chapter3_controller)
+	chapter3_controller.begin(self, test_scenario)
+
+func clear_previous_world_for_chapter3() -> void:
+	# Chapter 3 gets a fresh battlefield but keeps the shared player, environment,
+	# sun, UI and controller. Earlier world branches no longer participate in play.
+	for child in get_children():
+		if child == player or child.name in ["WorldEnvironment", "Sun", "UI", "Chapter3Controller"]:
+			continue
+		child.queue_free()
+	if ui:
+		ui.visible = false
 
 func make_environment():
 	var env := Environment.new()
@@ -1418,6 +1452,8 @@ func _process(delta):
 		ammo_label.text = "Оружие получено"
 	else:
 		ammo_label.text = "ППШ — не получен"
+	if state.begins_with("chapter3"):
+		return
 	if state == "chase" or state.begins_with("chase_"):
 		return
 

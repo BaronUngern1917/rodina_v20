@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/weapons/ptrd_anti-_tank_rifle.glb" id="1_ptrd"]
+
+[node name="PTRDVisual" type="Node3D"]
+scale = Vector3(0.085, 0.085, 0.085)
+rotation_degrees = Vector3(0, -90, 0)
+
+[node name="PTRDModel" parent="." instance=ExtResource("1_ptrd")]

@@ -2,11 +2,18 @@ extends Node
 
 const HITBOX_SCRIPT: Script = preload("res://scripts/Chapter2Hitbox.gd")
 const TRUCK_SPEED := 15.5
-const INITIAL_GAP := 58.0
-const LOSE_GAP := 9.0
-const WIN_GAP := 104.0
+const INITIAL_GAP := 35.0
+const LOSE_GAP := 9.5
+const MAX_CHASE_GAP := 44.0
 const TANK_BASE_CLOSING_RATE := 1.45
-const TRACK_CONDITION_RECOVERY_RATE := 15.0
+const TRACK_SYSTEM_MAX_HP := 200.0
+const TRACK_DAMAGE_PER_HIT := 1.0
+const HULL_SLOW_DURATION := 1.2
+const HULL_BRAKING := 1.9
+const HULL_GAP_KICK := 0.07
+const INTRO_FRAME_RATE := 24.0
+const INTRO_VIDEO_DURATION := 6.066667
+const VICTORY_FRAME_RATE := 15.0
 
 var game: Node3D
 var player: CharacterBody3D
@@ -18,6 +25,11 @@ var tank_visual: Node3D
 var turret: Node3D
 var plane_nodes: Array[Node3D] = []
 var plane_animations: Array[AnimationPlayer] = []
+var cloud_nodes: Array[Node3D] = []
+var cloud_anchors: Array[Vector3] = []
+var cloud_base_rotations: Array[Vector3] = []
+var cloud_phases: Array[float] = []
+var cloud_texture_cache: Dictionary = {}
 var route_controls: Array[Vector3] = []
 var route_points: Array[Vector3] = []
 var route_cumulative: PackedFloat32Array = PackedFloat32Array()
@@ -30,7 +42,7 @@ var current_tank_forward_speed := TRUCK_SPEED + TANK_BASE_CLOSING_RATE
 var elapsed := 0.0
 var battle_idle_time := 0.0
 var battle_ambience_timer := 4.0
-var track_condition := 0.0
+var tracks_hp_remaining := TRACK_SYSTEM_MAX_HP
 var hull_slow_timer := 0.0
 var suspension_offset := 0.0
 var suspension_velocity := 0.0
@@ -66,11 +78,16 @@ var test_shot_timer := 0.0
 var test_speed := 1.0
 var result := ""
 var hit_effects: Array[MeshInstance3D] = []
-var intro_frames: Array[Texture2D] = []
+var intro_frame_paths: Array[String] = []
 var intro_frame_index := 0
 var intro_frame_timer := 0.0
+var intro_frame_rate := INTRO_FRAME_RATE
+var intro_duration := INTRO_VIDEO_DURATION
+var intro_sequence_stage := ""
 var intro_card: TextureRect
+var intro_backdrop: ColorRect
 var intro_audio: AudioStreamPlayer
+var intro_current_texture: Texture2D
 
 func begin(game_node: Node3D, test_mode: String = "") -> void:
 	game = game_node
@@ -449,6 +466,141 @@ func _build_battlefield() -> void:
 		if mill_player and mill_player.has_animation("Take 001"):
 			mill_player.get_animation("Take 001").loop_mode = Animation.LOOP_LINEAR
 			mill_player.play("Take 001")
+	_build_turn_vignettes(pine_scene, barn_scene, house_scene, tank_wreck_scenes, barrier_scene)
+	_build_cloud_layer()
+
+func _build_turn_vignettes(pine_scene: PackedScene, barn_scene: PackedScene, house_scene: PackedScene, wreck_scenes: Array[PackedScene], barrier_scene: PackedScene) -> void:
+	# Four pronounced bends receive separate silhouettes and irregular tree/stone edges.
+	var turn_distances: Array[float] = [84.0, 194.0, 400.0, 552.0]
+	for corner_index in range(turn_distances.size()):
+		var distance: float = turn_distances[corner_index]
+		var route_point := _route_at(distance)
+		var tangent := _tangent_at(distance)
+		var side := Vector3(-tangent.z, 0.0, tangent.x).normalized()
+		var inner_sign := 1.0 if _turn_at(distance) >= 0.0 else -1.0
+		var outer_sign := -inner_sign
+		var outer_direction := side * outer_sign
+		var outer_position := _find_route_clear_position(route_point, outer_direction, tangent, 30.0, 22.0)
+		var inner_position := _find_route_clear_position(route_point, side * inner_sign, tangent, 18.0, 14.0)
+		var yaw := atan2(tangent.x, tangent.z)
+		if pine_scene:
+			var along_offsets: Array[float] = [-18.0, -7.0, 5.0, 17.0, -13.0, 12.0]
+			var side_offsets: Array[float] = [23.0, 29.0, 25.0, 21.0, 17.0, 18.0]
+			var pine_scales: Array[float] = [0.024, 0.021, 0.026, 0.020, 0.019, 0.023]
+			for tree_index in range(along_offsets.size()):
+				var tree_side_sign := outer_sign if tree_index < 4 else inner_sign
+				var tree_point := route_point + tangent * along_offsets[tree_index] + side * tree_side_sign * side_offsets[tree_index]
+				if _route_clearance(tree_point) >= 14.0:
+					_spawn_model(pine_scene, tree_point, Vector3.ONE * pine_scales[tree_index], yaw + float(tree_index * 41 + corner_index * 19) * PI / 180.0, "Turn%02dPineCluster_%02d" % [corner_index + 1, tree_index])
+		match corner_index:
+			0:
+				# The first bend reads as a wooded rocky shoulder around the existing bunker.
+				if pine_scene:
+					_spawn_model(pine_scene, outer_position, Vector3.ONE * 0.024, yaw + 0.8, "Turn01OuterPine")
+					_spawn_model(pine_scene, outer_position + tangent * 9.0 + outer_direction * 4.0, Vector3.ONE * 0.021, yaw - 0.4, "Turn01PinePair")
+					_spawn_model(pine_scene, inner_position - tangent * 7.0, Vector3.ONE * 0.020, yaw + 1.2, "Turn01InnerPine")
+				if barrier_scene:
+					_spawn_model(barrier_scene, outer_position - tangent * 8.0, Vector3.ONE * 0.55, yaw + 0.6, "Turn01BrokenBarrier")
+			1:
+				# A damaged farmstead breaks the otherwise open outer edge of this bend.
+				if barn_scene:
+					_spawn_model(barn_scene, outer_position, Vector3.ONE * 0.82, yaw + 1.0, "Turn02BurnedBarn")
+				if house_scene:
+					_spawn_model(house_scene, outer_position + tangent * 14.0 + outer_direction * 4.0, Vector3.ONE * 0.72, yaw - 0.55, "Turn02RuinedHouse")
+				if pine_scene:
+					_spawn_model(pine_scene, outer_position - tangent * 12.0 - outer_direction * 7.0, Vector3.ONE * 0.022, yaw + 0.2, "Turn02PineEdge")
+			2:
+				# A low, rough perimeter of pines and a wrecked roadblock frames the bunker bend.
+				if wreck_scenes.size() > 2 and wreck_scenes[2]:
+					_spawn_model(wreck_scenes[2], outer_position, Vector3.ONE * 0.68, yaw + 1.8, "Turn03AbandonedTank")
+				if pine_scene:
+					_spawn_model(pine_scene, outer_position + tangent * 11.0 + outer_direction * 6.0, Vector3.ONE * 0.025, yaw - 0.5, "Turn03PineA")
+					_spawn_model(pine_scene, inner_position + tangent * 9.0, Vector3.ONE * 0.019, yaw + 0.8, "Turn03InnerPine")
+				if barrier_scene:
+					_spawn_model(barrier_scene, outer_position - tangent * 10.0, Vector3.ONE * 0.60, yaw + 0.3, "Turn03RoadsideDebris")
+			3:
+				# The last bend returns to a broken wooded ridge rather than another building row.
+				if pine_scene:
+					_spawn_model(pine_scene, outer_position, Vector3.ONE * 0.026, yaw + 0.9, "Turn04RidgePineA")
+					_spawn_model(pine_scene, outer_position - tangent * 10.0 + outer_direction * 8.0, Vector3.ONE * 0.021, yaw - 0.3, "Turn04RidgePineB")
+					_spawn_model(pine_scene, inner_position + tangent * 13.0, Vector3.ONE * 0.018, yaw + 0.5, "Turn04InnerPine")
+				if barrier_scene:
+					_spawn_model(barrier_scene, outer_position + tangent * 11.0, Vector3.ONE * 0.58, yaw - 0.8, "Turn04BrokenFence")
+
+func _build_cloud_layer() -> void:
+	var cloud_scene := load("res://assets/props/dubai_clouds.glb") as PackedScene
+	if cloud_scene == null:
+		push_warning("Chapter 2 cloud asset could not be loaded.")
+		return
+	# The supplied asset is a broad, flat cloud bank; stagger it high and along the whole loop.
+	var cloud_distances: Array[float] = [12.0, 96.0, 181.0, 266.0, 350.0, 434.0, 519.0, 604.0]
+	for i in range(cloud_distances.size()):
+		var distance: float = cloud_distances[i]
+		var route_point := _route_at(distance)
+		var tangent := _tangent_at(distance)
+		var side := Vector3(-tangent.z, 0.0, tangent.x).normalized()
+		var side_offset := 24.0 if i % 2 == 0 else -31.0
+		var cloud := cloud_scene.instantiate() as Node3D
+		if cloud == null:
+			continue
+		cloud.name = "Chapter2CloudBank_%02d" % i
+		world_root.add_child(cloud)
+		var cloud_scale := 0.36 + float(i % 3) * 0.025
+		cloud.scale = Vector3.ONE * cloud_scale
+		var base_rotation := Vector3(deg_to_rad(12.0 + float(i % 3) * 3.0), float((i * 53) % 360) * PI / 180.0, deg_to_rad(-8.0 if i % 2 == 0 else 9.0))
+		cloud.rotation = base_rotation
+		cloud.global_position = route_point + side * side_offset + Vector3.UP * (54.0 + float(i % 4) * 4.0)
+		_configure_cloud_materials(cloud)
+		cloud_nodes.append(cloud)
+		cloud_anchors.append(cloud.global_position)
+		cloud_base_rotations.append(base_rotation)
+		cloud_phases.append(float(i) * 0.93)
+
+func _configure_cloud_materials(cloud: Node3D) -> void:
+	for child in cloud.find_children("*", "MeshInstance3D", true, false):
+		var mesh_instance := child as MeshInstance3D
+		mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		if mesh_instance.mesh == null:
+			continue
+		for surface_index in range(mesh_instance.mesh.get_surface_count()):
+			var source_material := mesh_instance.get_active_material(surface_index) as StandardMaterial3D
+			if source_material == null:
+				continue
+			var cloud_material := source_material.duplicate() as StandardMaterial3D
+			cloud_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+			cloud_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			cloud_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			cloud_material.albedo_color = Color(0.94, 0.97, 1.0, 1.0)
+			var original_texture := cloud_material.albedo_texture
+			if original_texture:
+				cloud_material.albedo_texture = _cloud_texture_with_contrast(original_texture)
+			mesh_instance.set_surface_override_material(surface_index, cloud_material)
+
+func _cloud_texture_with_contrast(texture: Texture2D) -> Texture2D:
+	var cache_key := texture.resource_path if not texture.resource_path.is_empty() else str(texture.get_instance_id())
+	if cloud_texture_cache.has(cache_key):
+		return cloud_texture_cache[cache_key] as Texture2D
+	var image := texture.get_image()
+	if image == null or image.is_empty():
+		return texture
+	image.convert(Image.FORMAT_RGBA8)
+	for y in range(image.get_height()):
+		for x in range(image.get_width()):
+			var pixel := image.get_pixel(x, y)
+			pixel.a = pow(pixel.a, 0.66)
+			image.set_pixel(x, y, pixel)
+	var enhanced_texture := ImageTexture.create_from_image(image)
+	cloud_texture_cache[cache_key] = enhanced_texture
+	return enhanced_texture
+
+func _update_cloud_layer() -> void:
+	for i in range(cloud_nodes.size()):
+		var cloud := cloud_nodes[i]
+		if not is_instance_valid(cloud):
+			continue
+		var phase := elapsed * 0.014 + cloud_phases[i]
+		cloud.global_position = cloud_anchors[i] + Vector3(sin(phase) * 3.8, sin(phase * 0.7) * 0.8, cos(phase) * 4.6)
+		cloud.rotation = cloud_base_rotations[i] + Vector3(0.0, sin(phase * 0.55) * 0.035, sin(phase) * 0.018)
 
 func _scatter_battlefield_forest(pine_scene: PackedScene) -> void:
 	if pine_scene == null:
@@ -889,7 +1041,7 @@ func _build_hud() -> void:
 	gap_bar.position = Vector2(28, 138)
 	gap_bar.size = Vector2(280, 18)
 	gap_bar.min_value = LOSE_GAP
-	gap_bar.max_value = WIN_GAP
+	gap_bar.max_value = MAX_CHASE_GAP
 	gap_bar.value = chase_distance
 	gap_bar.show_percentage = false
 	canvas.add_child(gap_bar)
@@ -920,67 +1072,126 @@ func _build_hud() -> void:
 	intro_card.name = "TruckBoardingCutscene"
 	intro_card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	intro_card.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	intro_card.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	intro_card.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	intro_card.visible = false
+	intro_backdrop = ColorRect.new()
+	intro_backdrop.name = "Chapter2IntroLetterbox"
+	intro_backdrop.color = Color.BLACK
+	intro_backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	intro_backdrop.visible = false
+	canvas.add_child(intro_backdrop)
 	canvas.add_child(intro_card)
 
-func _read_cutscene_frames() -> void:
-	intro_frames.clear()
-	var folder := "res://assets/cutscenes/chapter_01/dmitry_gets_into_truck_frames"
+func _read_cutscene_frames(folder: String) -> Array[String]:
+	var frame_paths: Array[String] = []
 	var dir := DirAccess.open(folder)
 	if dir == null:
-		return
+		return frame_paths
 	var files := dir.get_files()
 	files.sort()
 	for file_name in files:
-		var lower_name := file_name.to_lower()
-		if not lower_name.ends_with(".png") and not lower_name.ends_with(".jpg") and not lower_name.ends_with(".jpeg"):
+		var extension := file_name.get_extension().to_lower()
+		if extension != "jpg" and extension != "jpeg" and extension != "png":
 			continue
-		var frame := ResourceLoader.load(folder + "/" + file_name) as Texture2D
-		if frame:
-			intro_frames.append(frame)
+		frame_paths.append(folder + "/" + file_name)
+	return frame_paths
+
+func _show_intro_frame(frame_index: int) -> void:
+	if intro_card == null or frame_index < 0 or frame_index >= intro_frame_paths.size():
+		return
+	var frame := ResourceLoader.load(intro_frame_paths[frame_index], "Texture2D", ResourceLoader.CACHE_MODE_IGNORE) as Texture2D
+	if frame:
+		intro_current_texture = frame
+		intro_card.texture = intro_current_texture
+		intro_frame_index = frame_index
 
 func _play_intro_then_chase(skip_intro: bool) -> void:
 	game.state = "transition"
-	cutscene_active = true
-	_read_cutscene_frames()
-	var intro_audio_stream: AudioStream
-	if ResourceLoader.exists("res://assets/cutscenes/chapter_01/dmitry_gets_into_truck_audio.wav"):
-		intro_audio_stream = load("res://assets/cutscenes/chapter_01/dmitry_gets_into_truck_audio.wav") as AudioStream
-	if intro_audio_stream:
-		intro_audio = AudioStreamPlayer.new()
-		intro_audio.name = "DmitryBoardingCutsceneAudio"
-		intro_audio.stream = intro_audio_stream
-		intro_audio.volume_db = -4.0
-		game.add_child(intro_audio)
-	if skip_intro or intro_frames.is_empty():
+	if skip_intro:
 		cutscene_active = false
+		intro_sequence_stage = ""
 		_begin_chase()
 		return
+	cutscene_active = true
+	var boarding_frames := _read_cutscene_frames("res://assets/cutscenes/chapter_01/dmitry_gets_into_truck_frames")
+	var boarding_audio: AudioStream
+	var boarding_audio_path := "res://assets/cutscenes/chapter_01/dmitry_gets_into_truck_audio.wav"
+	if ResourceLoader.exists(boarding_audio_path):
+		boarding_audio = load(boarding_audio_path) as AudioStream
+	if boarding_frames.is_empty():
+		push_error("Dmitry truck-boarding cutscene frames are missing.")
+		_start_chapter2_intro()
+		return
+	intro_sequence_stage = "truck_boarding"
+	_start_intro_cutscene(boarding_frames, 12.0, float(boarding_frames.size()) / 12.0, boarding_audio, "DmitryBoardingCutsceneAudio", false)
+
+func _start_chapter2_intro() -> void:
+	var chapter2_frames := _read_cutscene_frames("res://assets/cutscenes/chapter_02/start_frames")
+	var intro_audio_stream := load("res://assets/audio/cutscenes/chapter_2_start.mp3") as AudioStream
+	if chapter2_frames.is_empty() or intro_audio_stream == null:
+		push_error("Chapter 2 intro video frames or MP3 audio are missing.")
+		_finish_intro_cutscene()
+		_begin_chase()
+		return
+	intro_sequence_stage = "chapter2_pz3"
+	_start_intro_cutscene(chapter2_frames, INTRO_FRAME_RATE, INTRO_VIDEO_DURATION, intro_audio_stream, "Chapter2IntroAudio", true)
+
+func _start_intro_cutscene(frame_paths: Array[String], frame_rate: float, duration: float, audio_stream: AudioStream, audio_name: String, align_audio: bool) -> void:
+	intro_frame_paths = frame_paths
+	intro_frame_rate = frame_rate
+	intro_duration = duration
+	intro_frame_timer = 0.0
+	intro_frame_index = -1
+	intro_current_texture = null
+	if intro_audio:
+		intro_audio.stop()
+		intro_audio.queue_free()
+		intro_audio = null
 	if intro_card:
 		intro_card.visible = true
-		intro_card.texture = intro_frames[0]
-	intro_frame_index = 0
-	intro_frame_timer = 0.0
+		_show_intro_frame(0)
+	if intro_backdrop:
+		intro_backdrop.visible = true
+	if audio_stream:
+		intro_audio = AudioStreamPlayer.new()
+		intro_audio.name = audio_name
+		intro_audio.stream = audio_stream
+		intro_audio.volume_db = -4.0
+		if align_audio and audio_stream.get_length() > 0.0:
+			intro_audio.pitch_scale = clampf(audio_stream.get_length() / maxf(duration, 0.001), 0.95, 1.05)
+		game.add_child(intro_audio)
+		intro_audio.play(0.0)
+
+func _finish_intro_cutscene() -> void:
+	if intro_card:
+		intro_card.visible = false
+		intro_card.texture = null
+	if intro_backdrop:
+		intro_backdrop.visible = false
 	if intro_audio:
-		intro_audio.play()
+		intro_audio.stop()
+		intro_audio.queue_free()
+		intro_audio = null
+	intro_current_texture = null
+	intro_sequence_stage = ""
+	cutscene_active = false
 
 func _process(delta: float) -> void:
 	_animate_battle_soldiers(delta)
 	if cutscene_active:
-		if intro_frames.size() > 0:
-			intro_frame_timer += delta
-			var target_index := mini(intro_frames.size() - 1, int(intro_frame_timer * 12.0))
-			if target_index != intro_frame_index:
-				intro_frame_index = target_index
-				if intro_card:
-					intro_card.texture = intro_frames[intro_frame_index]
-			if intro_frame_timer >= float(intro_frames.size()) / 12.0:
-				if intro_card:
-					intro_card.visible = false
-				if intro_audio and intro_audio.playing:
-					intro_audio.stop()
-				cutscene_active = false
+		intro_frame_timer += delta
+		var target_index := mini(intro_frame_paths.size() - 1, int(intro_frame_timer * intro_frame_rate))
+		if target_index != intro_frame_index:
+			_show_intro_frame(target_index)
+		var audio_done := intro_audio == null or not intro_audio.playing
+		if intro_frame_timer >= intro_duration and audio_done:
+			if intro_sequence_stage == "truck_boarding":
+				_start_chapter2_intro()
+			elif intro_sequence_stage == "chapter2_victory":
+				_finish_intro_cutscene()
+				game.call("start_chapter3")
+			else:
+				_finish_intro_cutscene()
 				_begin_chase()
 		return
 	if not active:
@@ -994,14 +1205,15 @@ func _process(delta: float) -> void:
 	truck_distance += current_truck_speed * sim_delta
 	if test_scenario != "":
 		_run_test_scenario(sim_delta)
+	if not active:
+		return
 	_update_chase(sim_delta)
 	_update_planes(sim_delta)
+	_update_cloud_layer()
 	_update_audio_and_effects(sim_delta)
 	_update_hud()
 	if chase_distance <= LOSE_GAP:
 		_finish(false)
-	elif chase_distance >= WIN_GAP:
-		_finish(true)
 
 func _begin_chase() -> void:
 	if truck == null:
@@ -1009,7 +1221,7 @@ func _begin_chase() -> void:
 	truck_distance = 0.0
 	chase_distance = INITIAL_GAP
 	current_tank_forward_speed = TRUCK_SPEED + TANK_BASE_CLOSING_RATE
-	track_condition = 0.0
+	tracks_hp_remaining = TRACK_SYSTEM_MAX_HP
 	hull_slow_timer = 0.0
 	var truck_sample := _route_at(truck_distance)
 	truck.global_position = truck_sample
@@ -1060,10 +1272,15 @@ func _run_test_scenario(delta: float) -> void:
 	if test_scenario == "hull" and elapsed > 34.0:
 		return
 	test_shot_timer -= delta
-	var interval := 0.17 if test_scenario == "tracks" else 0.30
+	var interval := 0.11 if test_scenario == "tracks" or test_scenario == "mixed" else 0.30
 	if test_shot_timer <= 0.0:
 		test_shot_timer = interval
-		register_hit("track" if test_scenario == "tracks" else "hull", Vector3.ZERO)
+		var hit_kind := "hull"
+		if test_scenario == "tracks":
+			hit_kind = "track"
+		elif test_scenario == "mixed":
+			hit_kind = "hull" if fposmod(elapsed, 4.0) < 1.25 else "track"
+		register_hit(hit_kind, Vector3.ZERO)
 
 func _update_chase(delta: float) -> void:
 	var pos := _route_at(truck_distance)
@@ -1098,21 +1315,27 @@ func _update_chase(delta: float) -> void:
 		truck_visual.rotation_degrees.x = sin(elapsed * 5.6) * 1.0
 		truck_visual.rotation_degrees.z = sin(elapsed * 4.1) * 1.4
 	if tank:
-		# Tracks take a short-lived speed penalty. The Pz's forward speed eases
-		# back up after fire stops, so it never permanently falls behind.
+		# Hull hits briefly open space; track hits only reduce the hidden victory pool.
 		hull_slow_timer = maxf(0.0, hull_slow_timer - delta)
-		track_condition = maxf(0.0, track_condition - delta * TRACK_CONDITION_RECOVERY_RATE)
-		var track_braking := track_condition * 0.034
-		var hull_braking := 0.55 if hull_slow_timer > 0.0 else 0.0
-		var target_tank_speed := current_truck_speed + TANK_BASE_CLOSING_RATE - track_braking - hull_braking
+		var hull_braking := HULL_BRAKING if hull_slow_timer > 0.0 else 0.0
+		var target_tank_speed := current_truck_speed + TANK_BASE_CLOSING_RATE - hull_braking
 		target_tank_speed = clampf(target_tank_speed, TRUCK_SPEED * 0.68, TRUCK_SPEED + TANK_BASE_CLOSING_RATE)
 		current_tank_forward_speed = move_toward(current_tank_forward_speed, target_tank_speed, 4.5 * delta)
-		chase_distance = clampf(chase_distance + (current_truck_speed - current_tank_forward_speed) * delta, LOSE_GAP, WIN_GAP)
+		chase_distance = clampf(chase_distance + (current_truck_speed - current_tank_forward_speed) * delta, LOSE_GAP, MAX_CHASE_GAP)
 		var yaw_offset := wrapf(player.rotation.y - player_base_yaw, -PI, PI)
 		var pitch_offset: float = player.pitch - player_base_pitch
 		var tank_progress := truck_distance - chase_distance
 		var tank_position := _route_at(tank_progress)
-		var tank_tangent := (_route_at(tank_progress + current_tank_forward_speed * 0.12) - _route_at(tank_progress)).normalized()
+		var tank_route_tangent := _tangent_at(tank_progress)
+		var tank_route_side := Vector3(-tank_route_tangent.z, 0.0, tank_route_tangent.x).normalized()
+		var tank_lateral_offset := _tank_lateral_offset(elapsed, tank_progress)
+		var tank_world_position := tank_position + tank_route_side * tank_lateral_offset
+		var next_tank_progress := tank_progress + current_tank_forward_speed * 0.12
+		var next_tank_route_point := _route_at(next_tank_progress)
+		var next_tank_route_tangent := _tangent_at(next_tank_progress)
+		var next_tank_route_side := Vector3(-next_tank_route_tangent.z, 0.0, next_tank_route_tangent.x).normalized()
+		var next_tank_position := next_tank_route_point + next_tank_route_side * _tank_lateral_offset(elapsed + 0.12, next_tank_progress)
+		var tank_tangent := (next_tank_position - tank_world_position).normalized()
 		var tank_roughness := _roughness_at(tank_progress)
 		tank_bump_cooldown = maxf(0.0, tank_bump_cooldown - delta)
 		if tank_roughness > 0.72 and tank_bump_cooldown <= 0.0:
@@ -1122,7 +1345,7 @@ func _update_chase(delta: float) -> void:
 		tank_suspension_velocity -= 8.0 * tank_suspension_offset * delta
 		tank_suspension_offset = clampf(tank_suspension_offset + tank_suspension_velocity * delta, -0.28, 0.85)
 		var tank_bump := tank_suspension_offset + 0.08 * sin(elapsed * 6.5 + 1.0) + maxf(0.0, sin(tank_progress * 0.12 + 0.7)) * 0.10
-		tank.global_position = tank_position + Vector3.UP * tank_bump
+		tank.global_position = tank_world_position + Vector3.UP * tank_bump
 		tank.rotation = Vector3(-tank_suspension_velocity * 0.028 + 0.012 * sin(elapsed * 3.0), atan2(-tank_tangent.x, -tank_tangent.z), 0.025 * sin(elapsed * 4.0))
 		if turret:
 			turret.rotation.y = sin(elapsed * 0.28) * 0.05
@@ -1213,9 +1436,9 @@ func _update_audio_and_effects(delta: float) -> void:
 		truck_engine.pitch_scale = 0.84 + throttle_pitch * 0.16 + engine_load
 	if tank_tracks:
 		tank_tracks.pitch_scale = clampf(current_tank_forward_speed / (TRUCK_SPEED + TANK_BASE_CLOSING_RATE), 0.70, 1.0)
-		tank_tracks.volume_db = lerpf(-8.0, -12.0, clampf(track_condition / 100.0, 0.0, 1.0))
+		tank_tracks.volume_db = -8.0
 	if music_player:
-		var danger: float = clampf(inverse_lerp(WIN_GAP, LOSE_GAP, chase_distance), 0.0, 1.0)
+		var danger: float = clampf(inverse_lerp(MAX_CHASE_GAP, LOSE_GAP, chase_distance), 0.0, 1.0)
 		music_player.volume_db = lerpf(-12.0, -6.0, danger)
 	for effect in hit_effects:
 		if is_instance_valid(effect):
@@ -1239,15 +1462,31 @@ func register_hit(kind: String, hit_position: Vector3) -> void:
 	if not active:
 		return
 	if kind == "track":
-		track_condition = minf(100.0, track_condition + 25.0)
+		tracks_hp_remaining = maxf(0.0, tracks_hp_remaining - TRACK_DAMAGE_PER_HIT)
 		if track_impact:
 			_play_one_shot(track_impact)
 		_spawn_hit_spark(hit_position, true)
+		if tracks_hp_remaining <= 0.0:
+			_finish(true)
 	else:
-		hull_slow_timer = maxf(hull_slow_timer, 1.5)
+		hull_slow_timer = maxf(hull_slow_timer, HULL_SLOW_DURATION)
+		chase_distance = minf(MAX_CHASE_GAP, chase_distance + HULL_GAP_KICK)
 		if hull_impact:
 			_play_one_shot(hull_impact)
 		_spawn_hit_spark(hit_position, false)
+
+func _tank_lateral_offset(at_time: float, route_distance: float) -> float:
+	var cycle_position := fposmod(at_time + 0.65, 7.4)
+	var event_index := int(floor((at_time + 0.65) / 7.4))
+	var direction := 1.0 if event_index % 2 == 0 else -1.0
+	var dash := 0.0
+	if cycle_position < 0.9:
+		dash = direction * sin(PI * cycle_position / 0.9)
+	elif cycle_position >= 2.0 and cycle_position < 2.75:
+		dash = -direction * 0.78 * sin(PI * (cycle_position - 2.0) / 0.75)
+	var turn_amplifier := clampf(absf(_turn_at(route_distance)) * 1.2, 0.0, 1.0)
+	var steady_sway := 0.16 * sin(at_time * 1.18 + 0.4)
+	return clampf(dash * (1.12 + turn_amplifier * 0.25) + steady_sway, -1.5, 1.5)
 
 func _spawn_hit_spark(at: Vector3, track_hit: bool) -> void:
 	var spark := MeshInstance3D.new()
@@ -1312,7 +1551,7 @@ func _finish(won: bool) -> void:
 	active = false
 	result = "victory" if won else "defeat"
 	if test_scenario != "":
-		print("CHAPTER2_TEST_RESULT scenario=%s result=%s gap=%.1f track_condition=%.1f" % [test_scenario, result, chase_distance, track_condition])
+		print("CHAPTER2_TEST_RESULT scenario=%s result=%s gap=%.1f tracks_hp_remaining=%.1f" % [test_scenario, result, chase_distance, tracks_hp_remaining])
 	game.state = "chase_%s" % result
 	player.process_mode = Node.PROCESS_MODE_DISABLED
 	if truck_engine:
@@ -1325,9 +1564,26 @@ func _finish(won: bool) -> void:
 		stuka_siren.stop()
 	if music_player:
 		music_player.stop()
-	if outcome_layer:
-		outcome_layer.visible = true
-	if outcome_label:
-		outcome_label.text = "ПОБЕДА" if won else "ПОРАЖЕНИЕ"
+	if won and test_scenario == "":
+		_play_victory_cutscene()
+	else:
+		if outcome_layer:
+			outcome_layer.visible = true
+		if outcome_label:
+			outcome_label.text = "ПОБЕДА" if won else "ПОРАЖЕНИЕ"
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+func _play_victory_cutscene() -> void:
+	var frames := _read_cutscene_frames("res://assets/cutscenes/chapter_02/good_ending_frames")
+	var audio_stream := load("res://assets/audio/cutscenes/chapter_2_good_ending.mp3") as AudioStream
+	if frames.is_empty() or audio_stream == null:
+		push_error("Chapter 2 victory video frames or audio are missing; continuing into Chapter 3.")
+		game.call("start_chapter3")
+		return
+	if outcome_layer != null:
+		outcome_layer.visible = false
+	cutscene_active = true
+	intro_sequence_stage = "chapter2_victory"
+	var video_duration: float = float(frames.size()) / VICTORY_FRAME_RATE
+	_start_intro_cutscene(frames, VICTORY_FRAME_RATE, video_duration, audio_stream, "Chapter2VictoryAudio", true)
 
